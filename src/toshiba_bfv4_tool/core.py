@@ -677,12 +677,12 @@ def build_internal_query(name: str, value: str | None = None) -> CommandPreview:
     if build_query is not None:
         registered = build_query(name, value)
         return CommandPreview(
-            operation=registered.operation,
-            effect=f"{registered.effect} {registered.response_description}",
+            operation=f"query.{registered.name}",
+            effect=f"{registered.effect} {registered.response.layout}",
             payload_hex=registered.payload_hex,
             payload_ascii=registered.payload_ascii,
-            requires_reset=registered.requires_reset,
-            dangerous=registered.dangerous,
+            requires_reset=False,
+            dangerous=False,
         )
 
     fixed = {
