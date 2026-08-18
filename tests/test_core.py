@@ -230,6 +230,46 @@ def test_code128_builder_rejects_framing_controls_and_non_ascii() -> None:
         MODULE.build_code128_command("")
 
 
+def test_canonical_code128_job_uses_xb_rb_and_xs() -> None:
+    commands = MODULE.build_code128_job(
+        "ABC123",
+        barcode_number=7,
+        x=12,
+        y=345,
+        rotation=1,
+        height=80,
+        issue=MODULE.IssueSettings(
+            count=2,
+            cut_interval=10,
+            sensor=1,
+            issue_mode="D",
+            speed="A",
+            tag_rotation=2,
+            status_response=True,
+        ),
+    )
+    assert [command.payload_ascii for command in commands] == [
+        "\\x1bXB07;0012,00345,9,3,02,1,0080\\n\\x00",
+        "\\x1bRB07;ABC123\\n\\x00",
+        "\\x1bXS;I,0002,0101DA021\\n\\x00",
+    ]
+
+
+def test_linear_barcode_builder_supports_documented_optional_fields() -> None:
+    preview = MODULE.build_linear_barcode_format_command(
+        barcode_number=4,
+        barcode_type="V",
+        increment=-12,
+        guard_bar_length=7,
+        human_readable=1,
+        zero_suppression=2,
+    )
+    assert preview.payload_ascii == "\\x1bXB04;0000,00000,V,3,02,0,0100,-0000000012,007,1,02\\n\\x00"
+
+    commands = MODULE.build_linear_barcode_job("TRACK", barcode_number=4, barcode_type="V", issue=None)
+    assert commands[1].payload_ascii == "\\x1bRB04;TRACK\\n\\x00"
+
+
 def test_qr_builder_matches_automatic_tpcl_xb_format() -> None:
     preview = MODULE.build_qr_code_command("https://example.invalid", barcode_number=3, x=15, y=125)
     assert preview.payload_ascii == ("\\x1bXB03;0015,00125,T,M,04,A,0=https://example.invalid\\n\\x00")
@@ -240,21 +280,71 @@ def test_qr_builder_matches_manual_model_mask_and_connection() -> None:
         "PAYLOAD",
         mode="M",
         error_correction="H",
-        model=3,
+        model=2,
         mask=8,
         connection_number=2,
         connection_total=2,
         connection_xor=0xAF,
     )
-    assert preview.payload_ascii == "\\x1bXB00;0000,00000,T,H,04,M,0,M3,K8,J0202AF=PAYLOAD\\n\\x00"
+    assert preview.payload_ascii == "\\x1bXB00;0000,00000,T,H,04,M,0,M2,K8,J0202AF=PAYLOAD\\n\\x00"
 
 
 def test_qr_builder_validates_manual_options_and_data() -> None:
     with pytest.raises(ValueError, match="manual mode"):
         MODULE.build_qr_code_command("data", model=2)
-    with pytest.raises(ValueError, match="MicroQR"):
-        MODULE.build_qr_code_command("data", mode="M", model=3, error_correction="M")
+    with pytest.raises(ValueError, match="Input should be 1 or 2"):
+        MODULE.build_qr_code_command("data", mode="M", model=3, error_correction="H")
     with pytest.raises(ValueError, match="supplied together"):
         MODULE.build_qr_code_command("data", mode="M", connection_number=1)
     with pytest.raises(ValueError, match="line breaks"):
         MODULE.build_qr_code_command("data\r")
+
+
+def test_qr_data_matrix_and_pdf417_jobs_are_canonical() -> None:
+    qr = MODULE.build_qr_code_job("PAYLOAD", barcode_number=3, x=15, y=125)
+    assert [command.payload_ascii for command in qr] == [
+        "\\x1bXB03;0015,00125,T,M,04,A,0\\n\\x00",
+        "\\x1bRB03;PAYLOAD\\n\\x00",
+    ]
+
+    matrix = MODULE.build_data_matrix_job("DM", barcode_number=2, cells_x=10, cells_y=12)
+    assert [command.payload_ascii for command in matrix] == [
+        "\\x1bXB02;0000,00000,Q,20,04,01,0,C010012\\n\\x00",
+        "\\x1bRB02;DM\\n\\x00",
+    ]
+
+    pdf417 = MODULE.build_pdf417_job("PDF", barcode_number=1)
+    assert [command.payload_ascii for command in pdf417] == [
+        "\\x1bXB01;0000,00000,P,00,02,02,0,0020\\n\\x00",
+        "\\x1bRB01;PDF\\n\\x00",
+    ]
+
+
+def test_maxicode_mode_two_uses_fixed_width_rb_data() -> None:
+    preview = MODULE.build_maxicode_data_command(
+        barcode_number=5,
+        mode=2,
+        postal_code="12345",
+        postal_extension="6789",
+        class_of_service="001",
+        country_code="840",
+        message="ABC",
+    )
+    assert preview.payload_ascii == "\\x1bRB05;123456789001840ABC\\n\\x00"
+
+
+def test_barcode_jobs_reject_non_ascii_or_incomplete_2d_options() -> None:
+    with pytest.raises(ValueError, match="ASCII"):
+        MODULE.build_linear_barcode_job("ä")
+    with pytest.raises(ValueError, match="cells_x and cells_y"):
+        MODULE.build_data_matrix_job("DM", cells_x=10)
+    with pytest.raises(ValueError, match="postal_extension"):
+        MODULE.build_maxicode_data_command(
+            barcode_number=0,
+            mode=2,
+            postal_code="12345",
+            postal_extension="123",
+            class_of_service="001",
+            country_code="840",
+            message="ABC",
+        )

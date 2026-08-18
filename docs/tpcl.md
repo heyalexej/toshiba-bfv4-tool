@@ -18,8 +18,13 @@ All TPCL commands use the `ESC + ASCII command + LF + NUL` (`frame`) envelope.
 | Emulation (AUTO) | currently `setnvrs 1` + `33,1,1;` (AUTO) or `33,1,2;` (AUTO2) — see open question 1 |
 | Reset | `ESC Z0 LF NUL` or `ESC WR LF NUL`; `ESC ESC reboot 0|1|3 CR LF`, `facreset 0`, `resetcommand 0`, `selftest 0` |
 | PC command save/call | `XO`/`XP` are preview-only; `XQ` is callable with auto-call disabled by default |
-| Linear barcode | `ESC XBaa;bbbb,cccc,d,e,ff,k,llll(=data) LF NUL`; the current builder covers Code 128 with automatic code/check selection |
-| QR code | `ESC XBaa;bbbb,cccc,T,e,ff,g,h(,Mi)(,Kj)(,Jkkllmm)(=data) LF NUL`; automatic and manual QR previews are supported |
+| Linear barcode | `ESC XBaa;bbbb,cccc,d,e,ff,k,llll(,mnnnnnnnnnn,ooo,p,qq)(=data) LF NUL`; documented linear types and optional increment/skip fields are supported |
+| Barcode data | `ESC RBaa;data LF NUL`; the canonical job loads data separately after `XB` |
+| QR code | `ESC XBaa;bbbb,cccc,T,e,ff,g,h(,Mi)(,Kj)(,Jkkllmmmnnn)(=data) LF NUL`; canonical jobs use `XB` then `RB` |
+| Data Matrix | `ESC XBaa;bbbb,cccc,Q,ee,ff,gg,h(,Ciiijjj)(=data) LF NUL`; canonical jobs use `XB` then `RB` |
+| PDF417 | `ESC XBaa;bbbb,cccc,P,ee,ff,gg,i,jjjj(=data) LF NUL`; canonical jobs use `XB` then `RB` |
+| MaxiCode | `ESC XBaa;bbbb,cccc,Z,... LF NUL` plus its fixed-width `RB` forms; Python builders cover modes 2/3/4/6 |
+| Issue | `ESC XS;I,aaaa,bbbcdefgh LF NUL`; `IssueSettings` validates count, sensor, issue mode, speed, ribbon, rotation, and status response |
 
 ## Safety logic
 
@@ -51,9 +56,16 @@ hex/ASCII preview. Tests verify both paths offline against a network-free stub.
 5. **PC-save body streaming:** `XO` stores subsequent TPCL bytes without
    checking them. This tool therefore previews `XO`/`XP` but does not transmit
    an arbitrary save body.
-6. **Barcode data encoding:** the current Code 128 and QR builders accept
-   printable ASCII only. TPCL supports additional code-page/Kanji paths, but
-   those need a dedicated byte-oriented API before they can be exposed safely.
-7. **Barcode format versus print form:** `ESC XB` defines a numbered format
-   slot. A separate label/form command must reference that slot to produce
-   output; these builders intentionally do not claim to print a label.
+6. **Barcode data encoding:** the barcode jobs accept ASCII only. TPCL supports
+   additional code-page/Kanji paths, but those need a dedicated byte-oriented
+   API before they can be exposed safely.
+7. **Barcode format versus issue:** `ESC XB` defines a numbered format slot and
+   `ESC RB` loads its data. `ESC XS` is the separate issue command; `--no-issue`
+   is available when a surrounding label/form workflow performs issuance.
+
+## Toshiba sources
+
+The implementation follows Toshiba's published B-FV4 specifications:
+
+- [B-FV4 Interface Specification](https://business.toshiba.com/downloads/KB/f1Ulds/12666/B-FV4_IF_Spec_2nd.pdf)
+- [B-FV4 base specification](https://business.toshiba.com/downloads/KB/f1Ulds/21209/BV400BASE_SPC_EXEIF_EN_0330.pdf)

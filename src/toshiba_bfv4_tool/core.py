@@ -231,6 +231,251 @@ class PcSaveCallSettings(BaseModel):
     auto_call: bool = False
 
 
+class BarcodeDataSettings(BaseModel):
+    """Validated data for the TPCL ``RB`` barcode-data command."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    data: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("data")
+    @classmethod
+    def validate_data(cls, value: str) -> str:
+        if any(character in value for character in "\x00\r\n"):
+            raise ValueError("barcode data may not contain NUL or line breaks")
+        try:
+            value.encode("ascii")
+        except UnicodeEncodeError as error:
+            raise ValueError("barcode data must be ASCII") from error
+        return value
+
+
+LINEAR_BARCODE_TYPES: Final = frozenset(
+    {
+        "0",  # JAN8/EAN8
+        "5",  # JAN13/EAN13
+        "6",  # UPC-E
+        "7",
+        "8",  # EAN13 add-on
+        "9",
+        "A",  # Code 128
+        "C",  # Code 93
+        "G",
+        "H",  # UPC-E add-on
+        "I",
+        "J",  # EAN8 add-on
+        "K",
+        "L",
+        "M",  # UPC-A add-on
+        "N",  # UCC/EAN128
+        "R",
+        "S",  # customer barcode
+        "U",  # POSTNET
+        "V",  # RM4SCC
+        "W",  # KIX
+        "d",  # USPS Intelligent Mail (BV400 family)
+    }
+)
+
+
+class LinearBarcodeFormatSettings(BaseModel):
+    """Validated Toshiba ``XB`` fields for documented linear barcodes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    x: int = Field(ge=0, le=9999)
+    y: int = Field(ge=0, le=99999)
+    barcode_type: str = "9"
+    check_digit: int = Field(default=3, ge=1, le=5)
+    module_width: int = Field(default=2, ge=1, le=15)
+    rotation: Literal[0, 1, 2, 3] = 0
+    height: int = Field(default=100, ge=0, le=1000)
+    increment: int | None = Field(default=None, ge=-9999999999, le=9999999999)
+    guard_bar_length: int = Field(default=0, ge=0, le=100)
+    human_readable: Literal[0, 1] = 0
+    zero_suppression: int = Field(default=0, ge=0, le=99)
+
+    @field_validator("barcode_type")
+    @classmethod
+    def validate_barcode_type(cls, value: str) -> str:
+        if value not in LINEAR_BARCODE_TYPES:
+            allowed = ", ".join(sorted(LINEAR_BARCODE_TYPES))
+            raise ValueError(f"barcode_type must be one of: {allowed}")
+        return value
+
+
+class IssueSettings(BaseModel):
+    """Validated B-FV4 TPCL issue settings for the ``XS`` command."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    count: int = Field(default=1, ge=1, le=9999)
+    cut_interval: int = Field(default=0, ge=0, le=100)
+    sensor: Literal[0, 1, 2, 3, 4] = 2
+    issue_mode: Literal["C", "D", "E", "F", "G"] = "C"
+    speed: Literal["1", "2", "3", "4", "5", "6", "7", "8", "9", "A", "B"] = "3"
+    ribbon: Literal["0", "1", "2"] = "0"
+    tag_rotation: Literal[0, 1, 2, 3] = 0
+    status_response: bool = False
+
+
+class Code128FormatSettings(BaseModel):
+    """Validated TPCL format fields for a Code 128 barcode without data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    x: int = Field(ge=0, le=9999)
+    y: int = Field(ge=0, le=99999)
+    module_width: int = Field(default=2, ge=1, le=15)
+    rotation: Literal[0, 1, 2, 3] = 0
+    height: int = Field(default=100, ge=0, le=1000)
+
+
+class QrCodeFormatSettings(BaseModel):
+    """Validated TPCL QR-code format fields without inline data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    x: int = Field(ge=0, le=9999)
+    y: int = Field(ge=0, le=99999)
+    error_correction: Literal["L", "M", "Q", "H"] = "M"
+    cell_width: int = Field(default=4, ge=0, le=52)
+    mode: Literal["A", "M"] = "A"
+    rotation: Literal[0, 1, 2, 3] = 0
+    model: Literal[1, 2] | None = None
+    mask: int | None = Field(default=None, ge=0, le=8)
+    connection_number: int | None = Field(default=None, ge=1, le=16)
+    connection_total: int | None = Field(default=None, ge=1, le=16)
+    connection_xor: int | None = Field(default=None, ge=0, le=255)
+
+    @model_validator(mode="after")
+    def validate_qr_options(self) -> QrCodeFormatSettings:
+        connection = (self.connection_number, self.connection_total, self.connection_xor)
+        if any(value is not None for value in connection) and not all(value is not None for value in connection):
+            raise ValueError("QR connection_number, connection_total and connection_xor must be supplied together")
+        if self.mode == "A" and any(value is not None for value in (self.model, self.mask, *connection)):
+            raise ValueError("QR model, mask and connection options require manual mode")
+        return self
+
+
+class DataMatrixFormatSettings(BaseModel):
+    """Validated TPCL Data Matrix format fields without inline data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    x: int = Field(ge=0, le=9999)
+    y: int = Field(ge=0, le=99999)
+    ecc_type: Literal["00", "01", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13", "14", "20"] = "20"
+    cell_width: int = Field(default=4, ge=0, le=99)
+    format_id: int = Field(default=1, ge=1, le=6)
+    rotation: Literal[0, 1, 2, 3] = 0
+    cells_x: int | None = Field(default=None, ge=0, le=144)
+    cells_y: int | None = Field(default=None, ge=0, le=144)
+
+    @model_validator(mode="after")
+    def validate_cells(self) -> DataMatrixFormatSettings:
+        if (self.cells_x is None) != (self.cells_y is None):
+            raise ValueError("Data Matrix cells_x and cells_y must be supplied together")
+        return self
+
+
+class Pdf417FormatSettings(BaseModel):
+    """Validated TPCL PDF417 format fields without inline data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    x: int = Field(ge=0, le=9999)
+    y: int = Field(ge=0, le=99999)
+    security_level: int = Field(default=0, ge=0, le=8)
+    module_width: int = Field(default=2, ge=1, le=10)
+    columns: int = Field(default=2, ge=1, le=30)
+    rotation: Literal[0, 1, 2, 3] = 0
+    bar_height: int = Field(default=20, ge=0, le=100)
+
+
+class MaxiCodeFormatSettings(BaseModel):
+    """Validated TPCL MaxiCode format fields without data."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    x: int = Field(ge=0, le=9999)
+    y: int = Field(ge=0, le=99999)
+    mode: int | None = Field(default=None, ge=0, le=9)
+    connection_number: int | None = Field(default=None, ge=1, le=8)
+    connection_total: int | None = Field(default=None, ge=1, le=8)
+    zipper_contrast: Literal[0, 1, 2, 3] | None = None
+
+    @model_validator(mode="after")
+    def validate_connection(self) -> MaxiCodeFormatSettings:
+        connection = (self.connection_number, self.connection_total)
+        if any(value is not None for value in connection) and not all(value is not None for value in connection):
+            raise ValueError("MaxiCode connection_number and connection_total must be supplied together")
+        return self
+
+
+class MaxiCodeDataSettings(BaseModel):
+    """Validated fixed-width data for TPCL MaxiCode modes 2/3/4/6."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    mode: Literal[2, 3, 4, 6]
+    postal_code: str | None = None
+    postal_extension: str | None = None
+    class_of_service: str | None = None
+    country_code: str | None = None
+    message: str | None = None
+    primary: str | None = None
+    secondary: str | None = None
+
+    @model_validator(mode="after")
+    def validate_data(self) -> MaxiCodeDataSettings:
+        if self.mode in {2, 3}:
+            if self.postal_code is None or self.class_of_service is None or self.country_code is None:
+                raise ValueError("MaxiCode modes 2/3 require postal_code, class_of_service and country_code")
+            if self.message is None:
+                raise ValueError("MaxiCode modes 2/3 require message")
+            postal_length = 5 if self.mode == 2 else 6
+            if len(self.postal_code) != postal_length or not self.postal_code.isdigit():
+                raise ValueError(f"MaxiCode mode {self.mode} postal_code must contain {postal_length} digits")
+            if self.mode == 2 and (self.postal_extension is None or len(self.postal_extension) != 4):
+                raise ValueError("MaxiCode mode 2 postal_extension must contain four digits")
+            if self.mode == 2 and not self.postal_extension.isdigit():
+                raise ValueError("MaxiCode mode 2 postal_extension must contain four digits")
+            if self.mode == 3 and self.postal_extension is not None:
+                raise ValueError("MaxiCode mode 3 does not accept postal_extension")
+            for name, value in (("class_of_service", self.class_of_service), ("country_code", self.country_code)):
+                if len(value) != 3 or not value.isdigit():
+                    raise ValueError(f"MaxiCode {name} must contain three digits")
+            if len(self.message) > 84:
+                raise ValueError("MaxiCode message may contain at most 84 ASCII characters")
+            self._validate_ascii(self.message)
+        else:
+            if self.primary is None or self.secondary is None:
+                raise ValueError("MaxiCode modes 4/6 require primary and secondary")
+            if len(self.primary) != 9 or len(self.secondary) > 84:
+                raise ValueError("MaxiCode primary must be 9 characters and secondary at most 84 characters")
+            self._validate_ascii(self.primary)
+            self._validate_ascii(self.secondary)
+        return self
+
+    @staticmethod
+    def _validate_ascii(value: str) -> None:
+        if any(character in value for character in "\x00\r\n"):
+            raise ValueError("MaxiCode data may not contain NUL or line breaks")
+        try:
+            value.encode("ascii")
+        except UnicodeEncodeError as error:
+            raise ValueError("MaxiCode data must be ASCII") from error
+
+
 class Code128Settings(BaseModel):
     """Validated TPCL format fields for a Code 128 barcode."""
 
@@ -268,7 +513,7 @@ class QrCodeSettings(BaseModel):
     cell_width: int = Field(default=4, ge=0, le=52)
     mode: Literal["A", "M"] = "A"
     rotation: Literal[0, 1, 2, 3] = 0
-    model: Literal[1, 2, 3] | None = None
+    model: Literal[1, 2] | None = None
     mask: int | None = Field(default=None, ge=0, le=8)
     connection_number: int | None = Field(default=None, ge=1, le=16)
     connection_total: int | None = Field(default=None, ge=1, le=16)
@@ -282,8 +527,6 @@ class QrCodeSettings(BaseModel):
             raise ValueError("QR connection_number, connection_total and connection_xor must be supplied together")
         if self.mode == "A" and any(value is not None for value in (self.model, self.mask, *connection)):
             raise ValueError("QR model, mask and connection options require manual mode")
-        if self.model == 3 and self.error_correction != "H":
-            raise ValueError("MicroQR model 3 requires H error correction")
         if any(character in self.data for character in "\x00\r\n"):
             raise ValueError("QR data may not contain NUL or line breaks")
         try:
@@ -335,6 +578,7 @@ CAPABILITIES: Final = CapabilityManifest(
         "SingleCommand",
         "Status",
         "MaintenanceQueries",
+        "TPCLBarcodes (XB/RB/XS)",
         "Firmware (guarded)",
     ),
     family_optional=(
@@ -835,6 +1079,185 @@ def build_pc_save_call_command(
     )
 
 
+def build_barcode_data_command(data: str, *, barcode_number: int = 0) -> CommandPreview:
+    """Build the canonical TPCL ``RB`` data command for barcode fields."""
+
+    settings = BarcodeDataSettings(barcode_number=barcode_number, data=data)
+    payload = frame(f"RB{settings.barcode_number:02d};{settings.data}")
+    return CommandPreview(
+        operation="tpcl.barcode-data",
+        effect=f"Load data into barcode slot {settings.barcode_number:02d}; no label is issued by this command.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_linear_barcode_format_command(
+    *,
+    barcode_number: int = 0,
+    x: int = 0,
+    y: int = 0,
+    barcode_type: str = "9",
+    check_digit: int = 3,
+    module_width: int = 2,
+    rotation: int = 0,
+    height: int = 100,
+    increment: int | None = None,
+    guard_bar_length: int = 0,
+    human_readable: int = 0,
+    zero_suppression: int = 0,
+) -> CommandPreview:
+    """Build the documented linear-barcode ``XB`` format without data.
+
+    The optional increment/skip tuple is emitted only when requested.  This
+    keeps the default command in Toshiba's short form while still exposing
+    the documented ``m nnnnnnnnnn, ooo, p, qq`` fields.
+    """
+
+    settings = LinearBarcodeFormatSettings(
+        barcode_number=barcode_number,
+        x=x,
+        y=y,
+        barcode_type=barcode_type,
+        check_digit=check_digit,
+        module_width=module_width,
+        rotation=rotation,
+        height=height,
+        increment=increment,
+        guard_bar_length=guard_bar_length,
+        human_readable=human_readable,
+        zero_suppression=zero_suppression,
+    )
+    body = (
+        f"XB{settings.barcode_number:02d};{settings.x:04d},{settings.y:05d},"
+        f"{settings.barcode_type},{settings.check_digit},{settings.module_width:02d},"
+        f"{settings.rotation},{settings.height:04d}"
+    )
+    if settings.increment is not None:
+        sign = "+" if settings.increment >= 0 else "-"
+        body += (
+            f",{sign}{abs(settings.increment):010d},{settings.guard_bar_length:03d},"
+            f"{settings.human_readable},{settings.zero_suppression:02d}"
+        )
+    payload = frame(body)
+    return CommandPreview(
+        operation="tpcl.barcode-linear-format",
+        effect=f"Define linear barcode slot {settings.barcode_number:02d}; data is supplied separately by RB.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_linear_barcode_job(
+    data: str,
+    *,
+    issue: IssueSettings | None = None,
+    **format_values: object,
+) -> list[CommandPreview]:
+    """Build a canonical linear-barcode ``XB``/``RB``/optional ``XS`` job."""
+
+    data_settings = BarcodeDataSettings(
+        barcode_number=int(format_values.get("barcode_number", 0)),
+        data=data,
+    )
+    commands = [
+        build_linear_barcode_format_command(**format_values),
+        build_barcode_data_command(data_settings.data, barcode_number=data_settings.barcode_number),
+    ]
+    if issue is not None:
+        commands.append(build_issue_command(issue))
+    return commands
+
+
+def build_issue_command(settings: IssueSettings | None = None) -> CommandPreview:
+    """Build the Toshiba B-FV4 TPCL label issue command ``XS``."""
+
+    values = settings or IssueSettings()
+    payload = frame(
+        f"XS;I,{values.count:04d},{values.cut_interval:03d}{values.sensor}{values.issue_mode}"
+        f"{values.speed}{values.ribbon}{values.tag_rotation}{int(values.status_response)}"
+    )
+    return CommandPreview(
+        operation="tpcl.issue",
+        effect=f"Issue {values.count} label(s) with mode {values.issue_mode} and sensor {values.sensor}.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_code128_format_command(
+    *,
+    barcode_number: int = 0,
+    x: int = 0,
+    y: int = 0,
+    module_width: int = 2,
+    rotation: int = 0,
+    height: int = 100,
+) -> CommandPreview:
+    """Build a Code 128 ``XB`` format command without data or issue."""
+
+    settings = Code128FormatSettings(
+        barcode_number=barcode_number,
+        x=x,
+        y=y,
+        module_width=module_width,
+        rotation=rotation,
+        height=height,
+    )
+    payload = frame(
+        f"XB{settings.barcode_number:02d};{settings.x:04d},{settings.y:05d},9,3,"
+        f"{settings.module_width:02d},{settings.rotation},{settings.height:04d}"
+    )
+    return CommandPreview(
+        operation="tpcl.barcode-code128-format",
+        effect=f"Define Code 128 barcode slot {settings.barcode_number:02d}; data is supplied separately by RB.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_code128_job(
+    data: str,
+    *,
+    barcode_number: int = 0,
+    x: int = 0,
+    y: int = 0,
+    module_width: int = 2,
+    rotation: int = 0,
+    height: int = 100,
+    issue: IssueSettings | None = None,
+) -> list[CommandPreview]:
+    """Build the canonical Code 128 format, data and issue sequence."""
+
+    settings = Code128Settings(
+        barcode_number=barcode_number,
+        x=x,
+        y=y,
+        module_width=module_width,
+        rotation=rotation,
+        height=height,
+        data=data,
+    )
+    commands = [
+        build_code128_format_command(
+            barcode_number=settings.barcode_number,
+            x=settings.x,
+            y=settings.y,
+            module_width=settings.module_width,
+            rotation=settings.rotation,
+            height=settings.height,
+        ),
+        build_barcode_data_command(settings.data, barcode_number=settings.barcode_number),
+    ]
+    if issue is not None:
+        commands.append(build_issue_command(issue))
+    return commands
+
+
 def build_code128_command(
     data: str,
     *,
@@ -845,7 +1268,12 @@ def build_code128_command(
     rotation: int = 0,
     height: int = 100,
 ) -> CommandPreview:
-    """Build a TPCL Code 128 format command with automatic code selection."""
+    """Build a TPCL Code 128 format with inline data.
+
+    This is the compact Toshiba-supported form. For a normal print workflow,
+    prefer :func:`build_code128_job`, which emits ``XB`` then ``RB`` and,
+    optionally, ``XS``.
+    """
 
     settings = Code128Settings(
         barcode_number=barcode_number,
@@ -932,6 +1360,296 @@ def build_qr_code_command(
         payload_ascii=display_payload(payload),
         dangerous=True,
     )
+
+
+def build_qr_code_format_command(
+    *,
+    barcode_number: int = 0,
+    x: int = 0,
+    y: int = 0,
+    error_correction: str = "M",
+    cell_width: int = 4,
+    mode: str = "A",
+    rotation: int = 0,
+    model: int | None = None,
+    mask: int | None = None,
+    connection_number: int | None = None,
+    connection_total: int | None = None,
+    connection_xor: int | None = None,
+) -> CommandPreview:
+    """Build a QR ``XB`` format command without data or issue."""
+
+    settings = QrCodeFormatSettings(
+        barcode_number=barcode_number,
+        x=x,
+        y=y,
+        error_correction=error_correction,
+        cell_width=cell_width,
+        mode=mode,
+        rotation=rotation,
+        model=model,
+        mask=mask,
+        connection_number=connection_number,
+        connection_total=connection_total,
+        connection_xor=connection_xor,
+    )
+    body = (
+        f"XB{settings.barcode_number:02d};{settings.x:04d},{settings.y:05d},T,"
+        f"{settings.error_correction},{settings.cell_width:02d},{settings.mode},{settings.rotation}"
+    )
+    if settings.model is not None:
+        body += f",M{settings.model}"
+    if settings.mask is not None:
+        body += f",K{settings.mask}"
+    if settings.connection_number is not None:
+        body += f",J{settings.connection_number:02d}{settings.connection_total:02d}{settings.connection_xor:02X}"
+    payload = frame(body)
+    return CommandPreview(
+        operation="tpcl.barcode-qr-format",
+        effect=f"Define QR code slot {settings.barcode_number:02d}; data is supplied separately by RB.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_qr_code_job(
+    data: str,
+    *,
+    issue: IssueSettings | None = None,
+    **format_values: object,
+) -> list[CommandPreview]:
+    """Build the canonical QR format, data and optional issue sequence."""
+
+    data_settings = BarcodeDataSettings(
+        barcode_number=int(format_values.get("barcode_number", 0)),
+        data=data,
+    )
+    format_preview = build_qr_code_format_command(**format_values)
+    commands = [
+        format_preview,
+        build_barcode_data_command(data_settings.data, barcode_number=data_settings.barcode_number),
+    ]
+    if issue is not None:
+        commands.append(build_issue_command(issue))
+    return commands
+
+
+def build_data_matrix_format_command(
+    *,
+    barcode_number: int = 0,
+    x: int = 0,
+    y: int = 0,
+    ecc_type: str = "20",
+    cell_width: int = 4,
+    format_id: int = 1,
+    rotation: int = 0,
+    cells_x: int | None = None,
+    cells_y: int | None = None,
+) -> CommandPreview:
+    """Build a Toshiba Data Matrix ``XB`` format command."""
+
+    settings = DataMatrixFormatSettings(
+        barcode_number=barcode_number,
+        x=x,
+        y=y,
+        ecc_type=ecc_type,
+        cell_width=cell_width,
+        format_id=format_id,
+        rotation=rotation,
+        cells_x=cells_x,
+        cells_y=cells_y,
+    )
+    body = (
+        f"XB{settings.barcode_number:02d};{settings.x:04d},{settings.y:05d},Q,{settings.ecc_type},"
+        f"{settings.cell_width:02d},{settings.format_id:02d},{settings.rotation}"
+    )
+    if settings.cells_x is not None:
+        body += f",C{settings.cells_x:03d}{settings.cells_y:03d}"
+    payload = frame(body)
+    return CommandPreview(
+        operation="tpcl.barcode-data-matrix-format",
+        effect=f"Define Data Matrix slot {settings.barcode_number:02d}; data is supplied separately by RB.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_data_matrix_job(
+    data: str,
+    *,
+    issue: IssueSettings | None = None,
+    **format_values: object,
+) -> list[CommandPreview]:
+    """Build the canonical Data Matrix format, data and optional issue sequence."""
+
+    data_settings = BarcodeDataSettings(
+        barcode_number=int(format_values.get("barcode_number", 0)),
+        data=data,
+    )
+    commands = [
+        build_data_matrix_format_command(**format_values),
+        build_barcode_data_command(data_settings.data, barcode_number=data_settings.barcode_number),
+    ]
+    if issue is not None:
+        commands.append(build_issue_command(issue))
+    return commands
+
+
+def build_pdf417_format_command(
+    *,
+    barcode_number: int = 0,
+    x: int = 0,
+    y: int = 0,
+    security_level: int = 0,
+    module_width: int = 2,
+    columns: int = 2,
+    rotation: int = 0,
+    bar_height: int = 20,
+) -> CommandPreview:
+    """Build a Toshiba PDF417 ``XB`` format command."""
+
+    settings = Pdf417FormatSettings(
+        barcode_number=barcode_number,
+        x=x,
+        y=y,
+        security_level=security_level,
+        module_width=module_width,
+        columns=columns,
+        rotation=rotation,
+        bar_height=bar_height,
+    )
+    payload = frame(
+        f"XB{settings.barcode_number:02d};{settings.x:04d},{settings.y:05d},P,{settings.security_level:02d},"
+        f"{settings.module_width:02d},{settings.columns:02d},{settings.rotation},{settings.bar_height:04d}"
+    )
+    return CommandPreview(
+        operation="tpcl.barcode-pdf417-format",
+        effect=f"Define PDF417 slot {settings.barcode_number:02d}; data is supplied separately by RB.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_pdf417_job(
+    data: str,
+    *,
+    issue: IssueSettings | None = None,
+    **format_values: object,
+) -> list[CommandPreview]:
+    """Build the canonical PDF417 format, data and optional issue sequence."""
+
+    data_settings = BarcodeDataSettings(
+        barcode_number=int(format_values.get("barcode_number", 0)),
+        data=data,
+    )
+    commands = [
+        build_pdf417_format_command(**format_values),
+        build_barcode_data_command(data_settings.data, barcode_number=data_settings.barcode_number),
+    ]
+    if issue is not None:
+        commands.append(build_issue_command(issue))
+    return commands
+
+
+def build_maxicode_format_command(
+    *,
+    barcode_number: int = 0,
+    x: int = 0,
+    y: int = 0,
+    mode: int | None = None,
+    connection_number: int | None = None,
+    connection_total: int | None = None,
+    zipper_contrast: int | None = None,
+) -> CommandPreview:
+    """Build a Toshiba MaxiCode ``XB`` format command."""
+
+    settings = MaxiCodeFormatSettings(
+        barcode_number=barcode_number,
+        x=x,
+        y=y,
+        mode=mode,
+        connection_number=connection_number,
+        connection_total=connection_total,
+        zipper_contrast=zipper_contrast,
+    )
+    body = f"XB{settings.barcode_number:02d};{settings.x:04d},{settings.y:05d},Z"
+    if settings.mode is not None:
+        body += f",{settings.mode}"
+    if settings.connection_number is not None:
+        body += f",J{settings.connection_number:02d}{settings.connection_total:02d}"
+    if settings.zipper_contrast is not None:
+        body += f",Z{settings.zipper_contrast}"
+    payload = frame(body)
+    return CommandPreview(
+        operation="tpcl.barcode-maxicode-format",
+        effect=f"Define MaxiCode slot {settings.barcode_number:02d}; data is supplied by the MaxiCode RB form.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_maxicode_data_command(
+    *,
+    barcode_number: int,
+    mode: int,
+    postal_code: str | None = None,
+    postal_extension: str | None = None,
+    class_of_service: str | None = None,
+    country_code: str | None = None,
+    message: str | None = None,
+    primary: str | None = None,
+    secondary: str | None = None,
+) -> CommandPreview:
+    """Build the fixed-width Toshiba MaxiCode ``RB`` data command."""
+
+    settings = MaxiCodeDataSettings(
+        barcode_number=barcode_number,
+        mode=mode,
+        postal_code=postal_code,
+        postal_extension=postal_extension,
+        class_of_service=class_of_service,
+        country_code=country_code,
+        message=message,
+        primary=primary,
+        secondary=secondary,
+    )
+    if settings.mode == 2:
+        data = (
+            f"{settings.postal_code}{settings.postal_extension}{settings.class_of_service}"
+            f"{settings.country_code}{settings.message}"
+        )
+    elif settings.mode == 3:
+        data = f"{settings.postal_code}{' ' * 3}{settings.class_of_service}{settings.country_code}{settings.message}"
+    else:
+        data = f"{settings.primary}{settings.secondary}"
+    payload = frame(f"RB{settings.barcode_number:02d};{data}")
+    return CommandPreview(
+        operation="tpcl.barcode-maxicode-data",
+        effect=f"Load fixed-width MaxiCode mode {settings.mode} data into slot {settings.barcode_number:02d}.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_maxicode_job(
+    *,
+    issue: IssueSettings | None = None,
+    format_values: Mapping[str, object],
+    data_values: Mapping[str, object],
+) -> list[CommandPreview]:
+    """Build a canonical MaxiCode ``XB``/``RB``/optional ``XS`` job."""
+
+    format_preview = build_maxicode_format_command(**format_values)
+    data_preview = build_maxicode_data_command(**data_values)
+    commands = [format_preview, data_preview]
+    if issue is not None:
+        commands.append(build_issue_command(issue))
+    return commands
 
 
 def build_emulation_command(mode: str, *, add_arg: bool = False) -> CommandPreview:
@@ -1282,6 +2000,39 @@ def add_target(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
 
 
+def add_issue_options(parser: argparse.ArgumentParser) -> None:
+    """Add documented ``XS`` issue controls shared by barcode commands."""
+
+    parser.add_argument("--count", type=int, default=1, metavar="0001-9999")
+    parser.add_argument("--cut-interval", type=int, default=0, metavar="000-100")
+    parser.add_argument("--sensor", type=int, choices=(0, 1, 2, 3, 4), default=2)
+    parser.add_argument("--issue-mode", choices=("C", "D", "E", "F", "G"), default="C")
+    parser.add_argument("--speed", choices=tuple("123456789AB"), default="3")
+    parser.add_argument("--ribbon", choices=("0", "1", "2"), default="0")
+    parser.add_argument("--tag-rotation", type=int, choices=(0, 1, 2, 3), default=0)
+    parser.add_argument("--status-response", action="store_true")
+    parser.add_argument(
+        "--no-issue",
+        action="store_true",
+        help="emit only XB/RB and omit the XS label-issue command",
+    )
+
+
+def issue_settings_from_args(args: argparse.Namespace) -> IssueSettings | None:
+    if args.no_issue:
+        return None
+    return IssueSettings(
+        count=args.count,
+        cut_interval=args.cut_interval,
+        sensor=args.sensor,
+        issue_mode=args.issue_mode,
+        speed=args.speed,
+        ribbon=args.ribbon,
+        tag_rotation=args.tag_rotation,
+        status_response=args.status_response,
+    )
+
+
 def add_optional_parameter_options(parser: argparse.ArgumentParser) -> None:
     for name in (
         "codepage",
@@ -1481,9 +2232,10 @@ def make_parser() -> argparse.ArgumentParser:
         help="enable automatic call at printer power-on; requires explicit --apply --yes",
     )
 
-    barcode = subparsers.add_parser("barcode-code128", help="preview/apply an inline Code 128 barcode format")
+    barcode = subparsers.add_parser("barcode-code128", help="preview/apply a Code 128 XB/RB/XS print job")
     add_target(barcode)
     add_write_flags(barcode)
+    add_issue_options(barcode)
     barcode.add_argument("--data", required=True, help="ASCII barcode data")
     barcode.add_argument("--number", type=int, default=0, dest="barcode_number", metavar="00-31")
     barcode.add_argument("--x", type=int, default=0, metavar="TENTHS_MM")
@@ -1492,9 +2244,28 @@ def make_parser() -> argparse.ArgumentParser:
     barcode.add_argument("--rotation", type=int, choices=(0, 1, 2, 3), default=0)
     barcode.add_argument("--height", type=int, default=100, metavar="TENTHS_MM")
 
-    qr = subparsers.add_parser("qr", help="preview/apply an inline TPCL QR-code format")
+    linear = subparsers.add_parser("barcode", help="preview/apply a generic linear TPCL barcode job")
+    add_target(linear)
+    add_write_flags(linear)
+    add_issue_options(linear)
+    linear.add_argument("--data", required=True, help="ASCII barcode data")
+    linear.add_argument("--type", default="9", dest="barcode_type", metavar="TYPE")
+    linear.add_argument("--number", type=int, default=0, dest="barcode_number", metavar="00-31")
+    linear.add_argument("--x", type=int, default=0, metavar="TENTHS_MM")
+    linear.add_argument("--y", type=int, default=0, metavar="TENTHS_MM")
+    linear.add_argument("--check-digit", type=int, default=3, choices=(1, 2, 3, 4, 5))
+    linear.add_argument("--module-width", type=int, default=2, metavar="DOTS")
+    linear.add_argument("--rotation", type=int, choices=(0, 1, 2, 3), default=0)
+    linear.add_argument("--height", type=int, default=100, metavar="TENTHS_MM")
+    linear.add_argument("--increment", type=int, metavar="SIGNED_VALUE")
+    linear.add_argument("--guard-bar-length", type=int, default=0, metavar="000-100")
+    linear.add_argument("--human-readable", type=int, choices=(0, 1), default=0)
+    linear.add_argument("--zero-suppression", type=int, default=0, metavar="00-99")
+
+    qr = subparsers.add_parser("qr", help="preview/apply a TPCL QR-code XB/RB/XS print job")
     add_target(qr)
     add_write_flags(qr)
+    add_issue_options(qr)
     qr.add_argument("--data", required=True, help="ASCII QR data")
     qr.add_argument("--number", type=int, default=0, dest="barcode_number", metavar="00-31")
     qr.add_argument("--x", type=int, default=0, metavar="TENTHS_MM")
@@ -1508,6 +2279,35 @@ def make_parser() -> argparse.ArgumentParser:
     qr.add_argument("--connection-number", type=int, metavar="01-16")
     qr.add_argument("--connection-total", type=int, metavar="01-16")
     qr.add_argument("--connection-xor", type=lambda value: int(value, 16), metavar="00-FF")
+
+    data_matrix = subparsers.add_parser("data-matrix", help="preview/apply a TPCL Data Matrix XB/RB/XS job")
+    add_target(data_matrix)
+    add_write_flags(data_matrix)
+    add_issue_options(data_matrix)
+    data_matrix.add_argument("--data", required=True, help="ASCII Data Matrix data")
+    data_matrix.add_argument("--number", type=int, default=0, dest="barcode_number", metavar="00-31")
+    data_matrix.add_argument("--x", type=int, default=0, metavar="TENTHS_MM")
+    data_matrix.add_argument("--y", type=int, default=0, metavar="TENTHS_MM")
+    data_matrix.add_argument("--ecc", default="20", dest="ecc_type")
+    data_matrix.add_argument("--cell-width", type=int, default=4, metavar="DOTS")
+    data_matrix.add_argument("--format-id", type=int, default=1, choices=(1, 2, 3, 4, 5, 6))
+    data_matrix.add_argument("--rotation", type=int, choices=(0, 1, 2, 3), default=0)
+    data_matrix.add_argument("--cells-x", type=int)
+    data_matrix.add_argument("--cells-y", type=int)
+
+    pdf417 = subparsers.add_parser("pdf417", help="preview/apply a TPCL PDF417 XB/RB/XS job")
+    add_target(pdf417)
+    add_write_flags(pdf417)
+    add_issue_options(pdf417)
+    pdf417.add_argument("--data", required=True, help="ASCII PDF417 data")
+    pdf417.add_argument("--number", type=int, default=0, dest="barcode_number", metavar="00-31")
+    pdf417.add_argument("--x", type=int, default=0, metavar="TENTHS_MM")
+    pdf417.add_argument("--y", type=int, default=0, metavar="TENTHS_MM")
+    pdf417.add_argument("--security-level", type=int, default=0, choices=tuple(range(9)))
+    pdf417.add_argument("--module-width", type=int, default=2, metavar="DOTS")
+    pdf417.add_argument("--columns", type=int, default=2, metavar="01-30")
+    pdf417.add_argument("--rotation", type=int, choices=(0, 1, 2, 3), default=0)
+    pdf417.add_argument("--bar-height", type=int, default=20, metavar="0000-0100")
 
     download_paths = subparsers.add_parser("download-paths", help="show supported printer-side filesystem paths")
     download_paths.set_defaults(handler=lambda args: print(json.dumps(DOWNLOAD_PATHS, indent=2), flush=True))
@@ -1669,17 +2469,16 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "barcode-code128":
         apply_previews(
             parse_target(args),
-            [
-                build_code128_command(
-                    args.data,
-                    barcode_number=args.barcode_number,
-                    x=args.x,
-                    y=args.y,
-                    module_width=args.module_width,
-                    rotation=args.rotation,
-                    height=args.height,
-                )
-            ],
+            build_code128_job(
+                args.data,
+                barcode_number=args.barcode_number,
+                x=args.x,
+                y=args.y,
+                module_width=args.module_width,
+                rotation=args.rotation,
+                height=args.height,
+                issue=issue_settings_from_args(args),
+            ),
             timeout=args.timeout,
             settle_delay=args.settle_delay,
             apply=args.apply,
@@ -1689,23 +2488,90 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "qr":
         apply_previews(
             parse_target(args),
-            [
-                build_qr_code_command(
-                    args.data,
-                    barcode_number=args.barcode_number,
-                    x=args.x,
-                    y=args.y,
-                    error_correction=args.error_correction,
-                    cell_width=args.cell_width,
-                    mode=args.mode,
-                    rotation=args.rotation,
-                    model=args.model,
-                    mask=args.mask,
-                    connection_number=args.connection_number,
-                    connection_total=args.connection_total,
-                    connection_xor=args.connection_xor,
-                )
-            ],
+            build_qr_code_job(
+                args.data,
+                issue=issue_settings_from_args(args),
+                barcode_number=args.barcode_number,
+                x=args.x,
+                y=args.y,
+                error_correction=args.error_correction,
+                cell_width=args.cell_width,
+                mode=args.mode,
+                rotation=args.rotation,
+                model=args.model,
+                mask=args.mask,
+                connection_number=args.connection_number,
+                connection_total=args.connection_total,
+                connection_xor=args.connection_xor,
+            ),
+            timeout=args.timeout,
+            settle_delay=args.settle_delay,
+            apply=args.apply,
+            yes=args.yes,
+        )
+        return
+    if args.command == "barcode":
+        apply_previews(
+            parse_target(args),
+            build_linear_barcode_job(
+                args.data,
+                issue=issue_settings_from_args(args),
+                barcode_number=args.barcode_number,
+                x=args.x,
+                y=args.y,
+                barcode_type=args.barcode_type,
+                check_digit=args.check_digit,
+                module_width=args.module_width,
+                rotation=args.rotation,
+                height=args.height,
+                increment=args.increment,
+                guard_bar_length=args.guard_bar_length,
+                human_readable=args.human_readable,
+                zero_suppression=args.zero_suppression,
+            ),
+            timeout=args.timeout,
+            settle_delay=args.settle_delay,
+            apply=args.apply,
+            yes=args.yes,
+        )
+        return
+    if args.command == "data-matrix":
+        apply_previews(
+            parse_target(args),
+            build_data_matrix_job(
+                args.data,
+                issue=issue_settings_from_args(args),
+                barcode_number=args.barcode_number,
+                x=args.x,
+                y=args.y,
+                ecc_type=args.ecc_type,
+                cell_width=args.cell_width,
+                format_id=args.format_id,
+                rotation=args.rotation,
+                cells_x=args.cells_x,
+                cells_y=args.cells_y,
+            ),
+            timeout=args.timeout,
+            settle_delay=args.settle_delay,
+            apply=args.apply,
+            yes=args.yes,
+        )
+        return
+    if args.command == "pdf417":
+        apply_previews(
+            parse_target(args),
+            build_pdf417_job(
+                args.data,
+                issue=issue_settings_from_args(args),
+                barcode_number=args.barcode_number,
+                x=args.x,
+                y=args.y,
+                security_level=args.security_level,
+                module_width=args.module_width,
+                columns=args.columns,
+                rotation=args.rotation,
+                bar_height=args.bar_height,
+            ),
             timeout=args.timeout,
             settle_delay=args.settle_delay,
             apply=args.apply,

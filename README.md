@@ -8,8 +8,10 @@ provided for operators who need predictable LAN diagnostics and configuration.
 
 - read printer status, receive-buffer state, firmware, model, and serial data;
 - inspect and preview LAN, socket, TPCL, emulation, and maintenance commands;
-- preview and, with explicit confirmation, define inline Code 128 and QR
-  barcode formats using the documented TPCL `ESC XB` command;
+- preview and, with explicit confirmation, build documented TPCL barcode jobs
+  using the canonical `ESC XB` format, `ESC RB` data, and optional `ESC XS`
+  issue sequence; Code 128, linear barcode types, QR, Data Matrix, and PDF417
+  are covered, with MaxiCode available through the Python API;
 - inspect a self-describing read-only query registry with exact request bytes;
 - preserve long diagnostic/list responses up to 64 KiB and report truncation;
 - apply mutating commands only with an explicit `--apply --yes` confirmation;
@@ -101,17 +103,21 @@ toshiba-bfv4 pc-save-call 192.0.2.10 --id 7 --auto-call --apply --yes
 streaming is deliberately not exposed because an interrupted save session can
 leave the printer in PC-save mode without validating the stored commands.
 
-Preview an inline Code 128 or QR format:
+Preview canonical barcode jobs (the default includes one `XS` issue command):
 
 ```bash
 toshiba-bfv4 barcode-code128 192.0.2.10 --data 'ORDER-123' --x 50 --y 80
 toshiba-bfv4 qr 192.0.2.10 --data 'https://example.invalid/ORDER-123' --x 50 --y 80
+toshiba-bfv4 barcode 192.0.2.10 --type V --data 'TRACK-123' --no-issue
+toshiba-bfv4 data-matrix 192.0.2.10 --data 'CUSTOMS-123' --count 2
+toshiba-bfv4 pdf417 192.0.2.10 --data 'LONG-PAYLOAD'
 ```
 
-These commands define a barcode format number; they do not print a label by
-themselves. Data is limited to ASCII in this first implementation. QR manual
-model, mask, and structured-append options require `--mode M`; automatic mode
-leaves those choices to the printer.
+The command sequence is `XB` (define slot), `RB` (load data), and, unless
+`--no-issue` is used, `XS` (issue labels). Data is ASCII-bounded until a
+separate byte-oriented code-page path is verified. QR manual model, mask, and
+structured-append options require `--mode M`; automatic mode leaves those
+choices to the printer. Every write still requires `--apply --yes`.
 
 Apply a change only after reviewing the preview:
 
@@ -132,6 +138,14 @@ operator-supplied; this project neither ships nor downloads Toshiba firmware.
 During an apply, `burnstatus` is polled until the printer reports `00`; a
 nonzero status means that the flash operation is still in progress. The wait is
 bounded by `--burn-timeout` (300 seconds by default).
+
+## Toshiba protocol source
+
+Barcode syntax and limits are implemented from Toshiba's B-FV4 TPCL interface
+specification, not from a third-party renderer or a raster/image path:
+
+- [B-FV4 Interface Specification](https://business.toshiba.com/downloads/KB/f1Ulds/12666/B-FV4_IF_Spec_2nd.pdf)
+- [Toshiba B-FV4 base specification](https://business.toshiba.com/downloads/KB/f1Ulds/21209/BV400BASE_SPC_EXEIF_EN_0330.pdf)
 
 ## Safety model
 
