@@ -8,6 +8,7 @@ provided for operators who need predictable LAN diagnostics and configuration.
 
 - read printer status, receive-buffer state, firmware, model, and serial data;
 - inspect and preview LAN, socket, TPCL, emulation, and maintenance commands;
+- inspect a self-describing read-only query registry with exact request bytes;
 - apply mutating commands only with an explicit `--apply --yes` confirmation;
 - preview printer filesystem transfer headers without transmitting file data;
 - probe several printers from one command with the read-only LAN client.
@@ -47,6 +48,17 @@ Probe several printers without changing them:
 ```bash
 toshiba-bfv4-lan 192.0.2.10 192.0.2.11 --only status --only info
 ```
+
+List available maintenance queries without contacting a printer:
+
+```bash
+toshiba-bfv4 query-list
+```
+
+The four documented snapshot queries (`status`, `buffer`, `version`, and
+`identity`) use strict length and framing checks. Additional maintenance
+queries are diagnostic and read-only; an empty answer means that the exact
+firmware does not support that query and must not be retried automatically.
 
 Preview a LAN change:
 

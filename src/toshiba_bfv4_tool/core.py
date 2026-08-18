@@ -668,6 +668,23 @@ def build_single_command(name: str, value: str | None = None) -> CommandPreview:
 def build_internal_query(name: str, value: str | None = None) -> CommandPreview:
     """Build read-only maintenance queries."""
 
+    # Keep the public builder compatible with the standalone registry while
+    # retaining the direct-file loading mode used by the offline test suite.
+    try:
+        from .queries import build_query
+    except ImportError:
+        build_query = None
+    if build_query is not None:
+        registered = build_query(name, value)
+        return CommandPreview(
+            operation=registered.operation,
+            effect=f"{registered.effect} {registered.response_description}",
+            payload_hex=registered.payload_hex,
+            payload_ascii=registered.payload_ascii,
+            requires_reset=registered.requires_reset,
+            dangerous=registered.dangerous,
+        )
+
     fixed = {
         "system-version": "sv\r\n",
         "config": "config 0\r\n",
@@ -703,12 +720,20 @@ def read_internal_query(
     payload = bytes.fromhex(preview.payload_hex)
     response = exchange(target, payload, timeout)
     time.sleep(settle_delay)
-    return {
+    result = {
         "operation": preview.operation,
         "request": preview.payload_ascii,
         "response_hex": response.hex(" "),
         "response_text": response.decode("ascii", errors="replace"),
     }
+    try:
+        from .queries import REGISTRY
+    except ImportError:
+        REGISTRY = None
+    if REGISTRY is not None:
+        query_name = preview.operation.removeprefix("query.")
+        result["response_description"] = REGISTRY.get(query_name).response.layout
+    return result
 
 
 def exchange(target: PrinterTarget, payload: bytes, timeout: float) -> bytes:
@@ -868,23 +893,45 @@ def make_parser() -> argparse.ArgumentParser:
     status.add_argument("--timeout", type=float, default=1.5)
     status.add_argument("--settle-delay", type=float, default=0.75)
 
+    try:
+        from .queries import REGISTRY
+    except ImportError:
+        REGISTRY = None
+
+        def query_names() -> tuple[str, ...]:
+            return (
+                "system-version",
+                "config",
+                "media-info",
+                "tph-info",
+                "form-list",
+                "font-list",
+                "graphic-list",
+                "info",
+                "task-status",
+                "burn-status",
+                "last-state",
+            )
+
+    def show_query_list(args: argparse.Namespace) -> None:
+        if REGISTRY is None:
+            raise RuntimeError("maintenance registry is unavailable in direct-file mode")
+        print(
+            json.dumps(
+                REGISTRY.describe(),
+                indent=2,
+            ),
+            flush=True,
+        )
+
+    query_list = subparsers.add_parser("query-list", help="describe read-only maintenance queries")
+    query_list.set_defaults(handler=show_query_list)
+
     query = subparsers.add_parser("query", help="run a read-only maintenance query")
     add_target(query)
     query.add_argument(
         "operation",
-        choices=(
-            "system-version",
-            "config",
-            "media-info",
-            "tph-info",
-            "form-list",
-            "font-list",
-            "graphic-list",
-            "info",
-            "task-status",
-            "burn-status",
-            "last-state",
-        ),
+        choices=REGISTRY.names(documented=False) if REGISTRY is not None else query_names(),
     )
     query.add_argument("value", nargs="?")
     query.add_argument("--timeout", type=float, default=1.5)
@@ -986,6 +1033,9 @@ def main(argv: list[str] | None = None) -> None:
         args.handler(args)
         return
     if args.command == "download-paths":
+        args.handler(args)
+        return
+    if args.command == "query-list":
         args.handler(args)
         return
     if args.command == "download-header":
