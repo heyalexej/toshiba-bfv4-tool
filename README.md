@@ -27,8 +27,8 @@ With `uv`:
 uv tool install .
 ```
 
-Nach der Veröffentlichung kann das Tool auch direkt aus dem Git-Repository
-installiert werden.
+After publication, the tool can also be installed directly from the Git
+repository.
 
 For a checkout:
 

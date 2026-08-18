@@ -31,6 +31,63 @@ wire arguments to builders. Preserve this separation in every change. Data
 crossing a boundary is validated by a pydantic model with
 `extra="forbid"` so unknown or malformed fields fail loudly.
 
+## Command reference
+
+Use `uv run` for every command during development. The installed console
+scripts are:
+
+```text
+toshiba-bfv4 <command> ...       single-printer CLI
+toshiba-bfv4-lan <host> [...]    read-only multi-printer probe
+```
+
+The single-printer CLI provides these commands:
+
+- `capabilities` — print the supported feature groups without contacting a
+  printer.
+- `status HOST` — read status, receive-buffer capacity, firmware/version, and
+  printer identity.
+- `query-list` — list the read-only maintenance query names and wire details.
+- `query HOST QUERY [VALUE]` — run one maintenance query. Supported queries
+  are `system-version`, `config`, `media-info`, `tph-info`, `form-list`,
+  `font-list`, `graphic-list`, `info`, `task-status`, `burn-status`, and
+  `last-state`.
+- `lan HOST [OPTIONS]` — preview or apply IP, gateway, subnet, DHCP, client
+  ID, raw socket, and socket-port settings.
+- `tpcl-parameter HOST [OPTIONS]` — preview or apply the TPCL ESC Z2;1
+  parameter page.
+- `tpcl-fine HOST [OPTIONS]` — preview or apply the TPCL ESC Z2;2 fine
+  adjustment.
+- `emulation HOST MODE` — preview or apply an emulation mode: `D`, `E`, `I`,
+  `Z`, `TPCL`, `AUTO`, or `AUTO2`.
+- `tpcl-page HOST --protocol PROTOCOL --count COUNT --body BODY` — preview or
+  apply a TPCL parameter page using `setnvrr` or `setnvrs`.
+- `tpcl-general HOST CODE=VALUE ...` — preview or apply TPCL-General parameter
+  updates.
+- `download-paths` — list supported printer-side filesystem paths.
+- `download-header PATH --filename NAME --size SIZE_BYTES` — preview a
+  filesystem-download header. It never transmits file data.
+- `firmware HOST --package PATH` — validate an operator-supplied `.zip` or
+  `.abin` package and print the flash plan. Applying it additionally requires
+  `--apply --yes`; `--force` is required to retransmit the same master version.
+- `single HOST OPERATION [VALUE]` — preview or apply a mapped operation:
+  `media-calibration`, `ribbon-calibration`, `reboot`, `self-test`,
+  `factory-reset`, `reset-command`, `reset`, or `wr-reset`.
+
+Network commands accept `--port`, `--timeout`, and `--settle-delay`. The LAN
+probe accepts one or more hosts and can be narrowed with repeated `--only
+status`, `--only buffer`, `--only version`, or `--only info` options:
+
+```bash
+uv run toshiba-bfv4 status 192.0.2.10
+uv run toshiba-bfv4 query-list
+uv run toshiba-bfv4-lan 192.0.2.10 192.0.2.11 --only version --only status
+```
+
+Run `uv run toshiba-bfv4 COMMAND --help` for the complete option set. Every
+command that can change printer state is preview-only unless both `--apply`
+and `--yes` are supplied.
+
 ## Safe change rules
 
 - Read-only by default. No new code path may open a socket and transmit
