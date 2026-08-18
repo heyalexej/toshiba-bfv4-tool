@@ -41,6 +41,7 @@ MAGIC: Final = 0x46467841  # little-endian bytes: ``AxFF``
 BYTE_BURN_STATUS: Final[bytes] = b"\x1b\x1bburnstatus\r\n"
 BYTE_REBOOT_1: Final[bytes] = b"\x1b\x1breboot 1\r\n"
 BYTE_EXIT: Final[bytes] = b"\x1b\x1bexit\r\n"
+DOWNLOAD_HEADER_PREFIX: Final[bytes] = b"\x1bArg\x1b\x1bdownload\r\n\x1b$DN"
 
 # The vendor header is a packed structure.  The eight bytes before the final
 # CRC are reserved and are part of the checksum-covered header.
@@ -105,6 +106,7 @@ class FirmwarePlan(BaseModel):
     image_count: int = Field(ge=1)
     total_bytes: int = Field(ge=1)
     chunk_size: int = Field(ge=1, le=DEFAULT_CHUNK_SIZE)
+    download_header_hex: str
     burn_status_command_hex: str
     post_success_command_hex: str
     images: tuple[FirmwareImageInfo, ...]
@@ -174,12 +176,16 @@ class FirmwarePackage:
         }
         if len(master_versions) != 1:
             raise FirmwareError("package must contain exactly one type-3 master firmware version")
+        download_header = build_download_header(
+            image_count=len(self.images), total_bytes=sum(len(image.raw) for image in self.images)
+        )
         return FirmwarePlan(
             package=str(self.source),
             package_sha256=self.package_sha256,
             image_count=len(self.images),
             total_bytes=sum(len(image.raw) for image in self.images),
             chunk_size=chunk_size,
+            download_header_hex=download_header.hex(" "),
             burn_status_command_hex=BYTE_BURN_STATUS.hex(" "),
             post_success_command_hex=(BYTE_REBOOT_1 + BYTE_EXIT).hex(" "),
             images=tuple(image.info for image in self.images),
@@ -196,6 +202,16 @@ class FirmwarePackage:
             if image.header.image_type == 3 and image.header.subtype == 0:
                 return image.header.version
         raise FirmwareError("package has no type-3 master firmware image")
+
+
+def build_download_header(*, image_count: int, total_bytes: int) -> bytes:
+    """Build the vendor's firmware-mode header preceding raw image bytes."""
+
+    if not 1 <= image_count <= 0xFF:
+        raise FirmwareError("firmware image count must fit the two-digit download header field")
+    if not 1 <= total_bytes <= 0xFFFFFFFF:
+        raise FirmwareError("firmware stream size must fit the eight-digit download header field")
+    return DOWNLOAD_HEADER_PREFIX + f"{image_count:02X}{total_bytes:08X}".encode("ascii")
 
 
 def _parse_image(filename: str, raw: bytes) -> _FirmwareImage:
@@ -364,6 +380,9 @@ def apply_firmware_update(
             # block is erased/programmed. The vendor tool uses a separate
             # write timeout; do not reuse the short query/connect timeout.
             connection.settimeout(write_timeout)
+            connection.sendall(bytes.fromhex(plan.download_header_hex))
+            sent += len(bytes.fromhex(plan.download_header_hex))
+            print(f"transmit firmware download header: {sent} bytes", flush=True)
             for image in package.images:
                 for offset in range(0, len(image.raw), plan.chunk_size):
                     chunk = image.raw[offset : offset + plan.chunk_size]
@@ -416,6 +435,7 @@ def load_and_plan(path: str | Path, *, chunk_size: int = DEFAULT_CHUNK_SIZE) -> 
 __all__ = [
     "BLOCK_ALIGNMENT",
     "BYTE_BURN_STATUS",
+    "DOWNLOAD_HEADER_PREFIX",
     "DEFAULT_BURN_WAIT",
     "DEFAULT_CHUNK_SIZE",
     "DEFAULT_WRITE_TIMEOUT",
@@ -425,5 +445,6 @@ __all__ = [
     "FirmwarePackage",
     "FirmwarePlan",
     "apply_firmware_update",
+    "build_download_header",
     "load_and_plan",
 ]

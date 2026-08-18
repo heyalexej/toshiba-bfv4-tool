@@ -21,6 +21,7 @@ SPEC.loader.exec_module(MODULE)
 BYTE_BURN_STATUS = MODULE.BYTE_BURN_STATUS
 BYTE_EXIT = MODULE.BYTE_EXIT
 BYTE_REBOOT_1 = MODULE.BYTE_REBOOT_1
+build_download_header = MODULE.build_download_header
 FirmwareError = MODULE.FirmwareError
 FirmwarePackage = MODULE.FirmwarePackage
 
@@ -63,6 +64,7 @@ def test_valid_zip_is_planned_without_raw_bytes(tmp_path: Path) -> None:
     plan = package.plan()
     assert plan.image_count == 2
     assert plan.total_bytes == 2 * len(make_image())
+    assert bytes.fromhex(plan.download_header_hex) == build_download_header(image_count=2, total_bytes=plan.total_bytes)
     assert plan.burn_status_command_hex == BYTE_BURN_STATUS.hex(" ")
     assert plan.post_success_command_hex == (BYTE_REBOOT_1 + BYTE_EXIT).hex(" ")
     assert all("raw" not in item.model_dump_json() for item in plan.images)
