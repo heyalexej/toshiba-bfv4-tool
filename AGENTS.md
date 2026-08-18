@@ -85,6 +85,8 @@ The single-printer CLI provides these commands:
   enables explicit model, mask, and structured-append options.
 - `data-matrix HOST --data DATA` — preview or apply a Data Matrix job.
 - `pdf417 HOST --data DATA` — preview or apply a PDF417 job.
+- `maxicode HOST --mode MODE ...` — preview or apply a MaxiCode job for the
+  documented modes 2, 3, 4, or 6.
 - `download-paths` — list supported printer-side filesystem paths.
 - `download-header PATH --filename NAME --size SIZE_BYTES` — preview a
   filesystem-download header. It never transmits file data.

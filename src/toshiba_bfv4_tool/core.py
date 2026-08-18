@@ -2309,6 +2309,25 @@ def make_parser() -> argparse.ArgumentParser:
     pdf417.add_argument("--rotation", type=int, choices=(0, 1, 2, 3), default=0)
     pdf417.add_argument("--bar-height", type=int, default=20, metavar="0000-0100")
 
+    maxicode = subparsers.add_parser("maxicode", help="preview/apply a TPCL MaxiCode XB/RB/XS job")
+    add_target(maxicode)
+    add_write_flags(maxicode)
+    add_issue_options(maxicode)
+    maxicode.add_argument("--mode", type=int, choices=(2, 3, 4, 6), required=True)
+    maxicode.add_argument("--number", type=int, default=0, dest="barcode_number", metavar="00-31")
+    maxicode.add_argument("--x", type=int, default=0, metavar="TENTHS_MM")
+    maxicode.add_argument("--y", type=int, default=0, metavar="TENTHS_MM")
+    maxicode.add_argument("--connection-number", type=int, metavar="01-08")
+    maxicode.add_argument("--connection-total", type=int, metavar="01-08")
+    maxicode.add_argument("--zipper-contrast", type=int, choices=(0, 1, 2, 3))
+    maxicode.add_argument("--postal-code")
+    maxicode.add_argument("--postal-extension")
+    maxicode.add_argument("--class-of-service")
+    maxicode.add_argument("--country-code")
+    maxicode.add_argument("--message")
+    maxicode.add_argument("--primary")
+    maxicode.add_argument("--secondary")
+
     download_paths = subparsers.add_parser("download-paths", help="show supported printer-side filesystem paths")
     download_paths.set_defaults(handler=lambda args: print(json.dumps(DOWNLOAD_PATHS, indent=2), flush=True))
 
@@ -2571,6 +2590,38 @@ def main(argv: list[str] | None = None) -> None:
                 columns=args.columns,
                 rotation=args.rotation,
                 bar_height=args.bar_height,
+            ),
+            timeout=args.timeout,
+            settle_delay=args.settle_delay,
+            apply=args.apply,
+            yes=args.yes,
+        )
+        return
+    if args.command == "maxicode":
+        apply_previews(
+            parse_target(args),
+            build_maxicode_job(
+                issue=issue_settings_from_args(args),
+                format_values={
+                    "barcode_number": args.barcode_number,
+                    "x": args.x,
+                    "y": args.y,
+                    "mode": args.mode,
+                    "connection_number": args.connection_number,
+                    "connection_total": args.connection_total,
+                    "zipper_contrast": args.zipper_contrast,
+                },
+                data_values={
+                    "barcode_number": args.barcode_number,
+                    "mode": args.mode,
+                    "postal_code": args.postal_code,
+                    "postal_extension": args.postal_extension,
+                    "class_of_service": args.class_of_service,
+                    "country_code": args.country_code,
+                    "message": args.message,
+                    "primary": args.primary,
+                    "secondary": args.secondary,
+                },
             ),
             timeout=args.timeout,
             settle_delay=args.settle_delay,

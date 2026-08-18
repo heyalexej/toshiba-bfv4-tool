@@ -111,6 +111,8 @@ toshiba-bfv4 qr 192.0.2.10 --data 'https://example.invalid/ORDER-123' --x 50 --y
 toshiba-bfv4 barcode 192.0.2.10 --type V --data 'TRACK-123' --no-issue
 toshiba-bfv4 data-matrix 192.0.2.10 --data 'CUSTOMS-123' --count 2
 toshiba-bfv4 pdf417 192.0.2.10 --data 'LONG-PAYLOAD'
+toshiba-bfv4 maxicode 192.0.2.10 --mode 2 --postal-code 12345 \
+  --postal-extension 6789 --class-of-service 001 --country-code 840 --message 'TRACK-123'
 ```
 
 The command sequence is `XB` (define slot), `RB` (load data), and, unless
