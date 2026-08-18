@@ -147,7 +147,7 @@ def test_nv_envelope_validates_protocol_count_and_body() -> None:
         with pytest.raises(ValueError, match="NUL or line breaks"):
             MODULE.build_nv_parameter_command(protocol="setnvrr", count=1, body=f"20,1{control}0;")
     with pytest.raises(UnicodeEncodeError):
-        MODULE.build_nv_parameter_command(protocol="setnvrr", count=1, body="20,1,ä;")
+        MODULE.build_nv_parameter_command(protocol="setnvrr", count=1, body="20,1,é;")
 
 
 # ---------------------------------------------------------------------------
@@ -190,7 +190,7 @@ def test_tpcl_general_field_validation() -> None:
     with pytest.raises(ValueError, match="NUL or line breaks"):
         MODULE.build_tpcl_general_command({20: "0\r"})
     with pytest.raises(ValueError, match="ASCII"):
-        MODULE.build_tpcl_general_command({20: "ä"})
+        MODULE.build_tpcl_general_command({20: "é"})
     with pytest.raises(ValueError, match="ASCII"):
         MODULE.build_tpcl_general_command({20: "\xff"})
 
@@ -269,7 +269,7 @@ def test_reset_value_validation_restricts_reboot_modes() -> None:
 def test_frame_rejects_non_ascii_commands() -> None:
     assert MODULE.frame("WS") == b"\x1bWS\n\x00"
     with pytest.raises(ValueError, match="ASCII"):
-        MODULE.frame("WÄ")
+        MODULE.frame("WÉ")
 
 
 # ---------------------------------------------------------------------------
