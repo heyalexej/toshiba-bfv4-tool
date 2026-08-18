@@ -108,6 +108,11 @@ def test_wire_query_declares_read_only_effect_and_documentation_state() -> None:
     assert "must not be retried" in config.effect
 
 
+def test_diagnostic_queries_use_a_large_response_limit() -> None:
+    assert MODULE.build_query("status").response_limit == MODULE.DEFAULT_RESPONSE_LIMIT
+    assert MODULE.build_query("form-list").response_limit == MODULE.DIAGNOSTIC_RESPONSE_LIMIT
+
+
 def test_every_specification_declares_its_failure_modes() -> None:
     for spec in MODULE.REGISTRY.specs:
         codes = {mode.code for mode in spec.failures}
@@ -233,6 +238,7 @@ def test_execute_query_diagnostic_success_carries_text() -> None:
     assert outcome.documented is False
     assert outcome.response_text == "MODEL=B-FV4D FW=V1.6\r\n"
     assert outcome.fields == {"response_length": 22}
+    assert outcome.response_truncated is False
 
 
 def test_execute_query_reports_timeout_without_retry_advice() -> None:

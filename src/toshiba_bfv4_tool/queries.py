@@ -22,6 +22,8 @@ LF_NUL: Final[bytes] = b"\x0a\x00"
 CR_LF: Final[bytes] = b"\x0d\x0a"
 SOH_STX: Final[bytes] = b"\x01\x02"
 ETX_EOT_CRLF: Final[bytes] = b"\x03\x04\r\n"
+DEFAULT_RESPONSE_LIMIT: Final[int] = 512
+DIAGNOSTIC_RESPONSE_LIMIT: Final[int] = 64 * 1024
 
 #: Transports a request through a single printer connection and returns the
 #: raw response bytes.  Implementations own connection handling and timeouts.
@@ -121,6 +123,7 @@ class QuerySpec(BaseModel):
     response: ResponseSpec
     failures: tuple[FailureMode, ...]
     parameter: ParameterSpec | None = None
+    response_limit: int = Field(default=DEFAULT_RESPONSE_LIMIT, ge=1, le=DIAGNOSTIC_RESPONSE_LIMIT)
 
 
 class WireQuery(BaseModel):
@@ -139,6 +142,7 @@ class WireQuery(BaseModel):
     payload_ascii: str
     response: ResponseSpec
     failures: tuple[FailureMode, ...]
+    response_limit: int
 
     @property
     def payload(self) -> bytes:
@@ -168,6 +172,7 @@ class QueryOutcome(BaseModel):
     request_hex: str
     response_hex: str = ""
     response_text: str | None = None
+    response_truncated: bool = False
     fields: dict[str, str | int] = Field(default_factory=dict)
     error: QueryFailure | None = None
 
@@ -273,6 +278,7 @@ def _diagnostic_spec(
         ),
         failures=DIAGNOSTIC_FAILURES,
         parameter=parameter,
+        response_limit=DIAGNOSTIC_RESPONSE_LIMIT,
     )
 
 
@@ -476,6 +482,7 @@ def build_query(name: str, value: str | None = None) -> WireQuery:
         payload_ascii=_display_payload(payload),
         response=spec.response,
         failures=spec.failures,
+        response_limit=spec.response_limit,
     )
 
 
@@ -618,7 +625,9 @@ def execute_query(query: WireQuery | str, exchange: Exchange) -> QueryOutcome:
 
 
 __all__ = [
+    "DEFAULT_RESPONSE_LIMIT",
     "DOCUMENTED_FAILURES",
+    "DIAGNOSTIC_RESPONSE_LIMIT",
     "DIAGNOSTIC_FAILURES",
     "Exchange",
     "FailureCode",

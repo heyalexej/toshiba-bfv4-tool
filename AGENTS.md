@@ -53,6 +53,9 @@ The single-printer CLI provides these commands:
   `identity`, plus `system-version`, `config`, `media-info`, `tph-info`,
   `form-list`, `font-list`, `graphic-list`, `info`, `task-status`,
   `burn-status`, and `last-state`.
+  Diagnostic responses use a query-specific 64 KiB receive limit and expose
+  `response_truncated` when that bound is exceeded; the fixed snapshot
+  frames retain their strict documented lengths.
 - `lan HOST [OPTIONS]` — preview or apply IP, gateway, subnet, DHCP, client
   ID, raw socket, and socket-port settings.
 - `tpcl-parameter HOST [OPTIONS]` — preview or apply the TPCL ESC Z2;1

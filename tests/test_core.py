@@ -137,3 +137,24 @@ def test_status_response_parser_matches_live_shape() -> None:
     response = bytes.fromhex("01 02 30 30 31 30 30 30 30 03 04 0d 0a")
     assert MODULE.parse_status(response) == ("00", "1", 0)
     assert MODULE.STATUS_DETAILS["36"] == "reserved"
+
+
+def test_internal_diagnostic_query_uses_large_limit_and_reports_truncation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: list[int] = []
+
+    def fake_exchange_limited(target: object, payload: bytes, timeout: float, max_response: int) -> tuple[bytes, bool]:
+        captured.append(max_response)
+        return b"report", True
+
+    monkeypatch.setattr(MODULE, "exchange_limited", fake_exchange_limited)
+    result = MODULE.read_internal_query(
+        MODULE.PrinterTarget(host="192.0.2.10"),
+        MODULE.build_internal_query("form-list"),
+        timeout=0.1,
+        settle_delay=0.0,
+    )
+    assert captured == [MODULE.DIAGNOSTIC_MAX_RESPONSE]
+    assert result["response_truncated"] is True
+    assert result["response_limit"] == MODULE.DIAGNOSTIC_MAX_RESPONSE

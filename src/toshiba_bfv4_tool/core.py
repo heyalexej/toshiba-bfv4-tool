@@ -24,6 +24,7 @@ LF_NUL: Final[bytes] = b"\x0a\x00"
 CR_LF: Final[bytes] = b"\x0d\x0a"
 DEFAULT_PORT: Final[int] = 9100
 MAX_RESPONSE: Final[int] = 512
+DIAGNOSTIC_MAX_RESPONSE: Final[int] = 64 * 1024
 
 
 class Emulation(StrEnum):
@@ -736,40 +737,57 @@ def read_internal_query(
     target: PrinterTarget, preview: CommandPreview, *, timeout: float, settle_delay: float
 ) -> dict[str, object]:
     payload = bytes.fromhex(preview.payload_hex)
-    response = exchange(target, payload, timeout)
+    response_limit = MAX_RESPONSE
+    try:
+        from .queries import REGISTRY
+    except ImportError:
+        REGISTRY = None
+    query_name = preview.operation.removeprefix("query.")
+    if REGISTRY is not None:
+        response_limit = REGISTRY.get(query_name).response_limit
+    elif query_name not in {"status", "buffer", "version", "identity"}:
+        response_limit = DIAGNOSTIC_MAX_RESPONSE
+    response, response_truncated = exchange_limited(target, payload, timeout, response_limit)
     time.sleep(settle_delay)
     result = {
         "operation": preview.operation,
         "request": preview.payload_ascii,
         "response_hex": response.hex(" "),
         "response_text": response.decode("ascii", errors="replace"),
+        "response_limit": response_limit,
+        "response_truncated": response_truncated,
     }
-    try:
-        from .queries import REGISTRY
-    except ImportError:
-        REGISTRY = None
     if REGISTRY is not None:
-        query_name = preview.operation.removeprefix("query.")
         result["response_description"] = REGISTRY.get(query_name).response.layout
     return result
 
 
-def exchange(target: PrinterTarget, payload: bytes, timeout: float) -> bytes:
-    """Send exactly one command over a fresh B-FV4 socket."""
+def exchange_limited(target: PrinterTarget, payload: bytes, timeout: float, max_response: int) -> tuple[bytes, bool]:
+    """Send one command and report whether the bounded response was truncated."""
+
+    if max_response < 1:
+        raise ValueError("max_response must be positive")
 
     chunks = bytearray()
     with socket.create_connection((str(target.host), target.port), timeout=timeout) as connection:
         connection.settimeout(timeout)
         connection.sendall(payload)
-        while len(chunks) < MAX_RESPONSE:
+        while len(chunks) <= max_response:
             try:
-                chunk = connection.recv(MAX_RESPONSE - len(chunks))
+                chunk = connection.recv(max_response + 1 - len(chunks))
             except TimeoutError:
                 break
             if not chunk:
                 break
             chunks.extend(chunk)
-    return bytes(chunks)
+    return bytes(chunks[:max_response]), len(chunks) > max_response
+
+
+def exchange(target: PrinterTarget, payload: bytes, timeout: float) -> bytes:
+    """Send exactly one command over a fresh B-FV4 socket."""
+
+    response, _truncated = exchange_limited(target, payload, timeout, MAX_RESPONSE)
+    return response
 
 
 def parse_status(response: bytes) -> tuple[str, str, int]:

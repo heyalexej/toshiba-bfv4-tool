@@ -9,6 +9,7 @@ provided for operators who need predictable LAN diagnostics and configuration.
 - read printer status, receive-buffer state, firmware, model, and serial data;
 - inspect and preview LAN, socket, TPCL, emulation, and maintenance commands;
 - inspect a self-describing read-only query registry with exact request bytes;
+- preserve long diagnostic/list responses up to 64 KiB and report truncation;
 - apply mutating commands only with an explicit `--apply --yes` confirmation;
 - preview printer filesystem transfer headers without transmitting file data;
 - validate operator-supplied `.abin` firmware packages and apply them through
