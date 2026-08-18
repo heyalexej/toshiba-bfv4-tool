@@ -24,6 +24,7 @@ BYTE_REBOOT_1 = MODULE.BYTE_REBOOT_1
 build_download_header = MODULE.build_download_header
 FirmwareError = MODULE.FirmwareError
 FirmwarePackage = MODULE.FirmwarePackage
+burn_status_is_success = MODULE._burn_status_is_success
 
 HEADER = struct.Struct("<I4B6I HBBHH 16s 4x I")
 
@@ -88,3 +89,8 @@ def test_compressed_image_is_rejected_explicitly(tmp_path: Path) -> None:
     path.write_bytes(image)
     with pytest.raises(FirmwareError, match="compressed"):
         FirmwarePackage.load(path)
+
+
+def test_burn_status_zero_is_complete_and_nonzero_is_busy() -> None:
+    assert burn_status_is_success(b"00,00000000\r\n")
+    assert not burn_status_is_success(b"01,00000000\r\n")

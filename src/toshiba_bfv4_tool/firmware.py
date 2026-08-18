@@ -35,6 +35,7 @@ HEADER_SIZE: Final = 64
 BLOCK_ALIGNMENT: Final = 131_072
 DEFAULT_CHUNK_SIZE: Final = 8_192
 DEFAULT_BURN_WAIT: Final = 3.0
+DEFAULT_BURN_TIMEOUT: Final = 300.0
 DEFAULT_WRITE_TIMEOUT: Final = 60.0
 MAGIC: Final = 0x46467841  # little-endian bytes: ``AxFF``
 
@@ -299,16 +300,46 @@ def _read_response(connection: socket.socket, *, timeout: float, limit: int = 51
     return bytes(response)
 
 
-def _burn_status_is_success(response: bytes) -> bool:
+def _burn_status_code(response: bytes) -> int:
     text = response.decode("ascii", errors="replace").strip()
     if not text:
         raise FirmwareError("printer returned no burnstatus response")
     first = text.split(",", 1)[0].strip()
     try:
-        code = int(first, 16)
+        return int(first, 16)
     except ValueError as exc:
         raise FirmwareError(f"invalid burnstatus response: {text!r}") from exc
-    return code != 0
+
+
+def _burn_status_is_success(response: bytes) -> bool:
+    """Return true only after the printer reports that burning is complete."""
+
+    return _burn_status_code(response) == 0
+
+
+def _wait_for_burn_completion(
+    connection: socket.socket,
+    *,
+    timeout: float,
+    poll_interval: float,
+    burn_timeout: float,
+) -> bytes:
+    """Poll the vendor burn status until the flash operation is complete."""
+
+    deadline = time.monotonic() + burn_timeout
+    while True:
+        connection.sendall(BYTE_BURN_STATUS)
+        response = _read_response(connection, timeout=max(timeout, 1.5))
+        if _burn_status_is_success(response):
+            return response
+        if time.monotonic() >= deadline:
+            text = response.decode("ascii", errors="replace").strip()
+            raise FirmwareError(f"firmware burn did not complete within {burn_timeout:g}s: {text!r}")
+        print(
+            f"firmware burn still in progress: {response.decode('ascii', errors='replace').strip()}",
+            flush=True,
+        )
+        time.sleep(max(poll_interval, 0.5))
 
 
 def _validate_target(target: PrinterTarget, package: FirmwarePackage, *, timeout: float, force: bool) -> StatusSnapshot:
@@ -341,6 +372,7 @@ def apply_firmware_update(
     timeout: float,
     write_timeout: float = DEFAULT_WRITE_TIMEOUT,
     burn_wait: float,
+    burn_timeout: float = DEFAULT_BURN_TIMEOUT,
     apply: bool,
     yes: bool,
     force: bool,
@@ -355,6 +387,8 @@ def apply_firmware_update(
         raise FirmwareError("firmware writes require both --apply and --yes")
     if burn_wait < 0:
         raise FirmwareError("burn_wait must be non-negative")
+    if burn_timeout <= 0:
+        raise FirmwareError("burn_timeout must be positive")
     if write_timeout <= 0:
         raise FirmwareError("write_timeout must be positive")
 
@@ -395,11 +429,12 @@ def apply_firmware_update(
                     )
             if burn_wait:
                 time.sleep(burn_wait)
-            connection.sendall(BYTE_BURN_STATUS)
-            burn_response = _read_response(connection, timeout=max(timeout, 1.5))
-            success = _burn_status_is_success(burn_response)
-            if not success:
-                raise FirmwareError(f"printer rejected firmware burn: {burn_response!r}")
+            burn_response = _wait_for_burn_completion(
+                connection,
+                timeout=timeout,
+                poll_interval=burn_wait,
+                burn_timeout=burn_timeout,
+            )
             connection.sendall(BYTE_REBOOT_1 + BYTE_EXIT)
     except (OSError, TimeoutError):
         # A failed raw stream can leave the printer's update channel locked.
@@ -437,6 +472,7 @@ __all__ = [
     "BYTE_BURN_STATUS",
     "DOWNLOAD_HEADER_PREFIX",
     "DEFAULT_BURN_WAIT",
+    "DEFAULT_BURN_TIMEOUT",
     "DEFAULT_CHUNK_SIZE",
     "DEFAULT_WRITE_TIMEOUT",
     "FirmwareError",

@@ -1013,6 +1013,7 @@ def make_parser() -> argparse.ArgumentParser:
     firmware.add_argument("--package", required=True, help="operator-supplied Toshiba firmware .zip or .abin")
     firmware.add_argument("--chunk-size", type=int, default=8192, metavar="BYTES")
     firmware.add_argument("--burn-wait", type=float, default=3.0, metavar="SECONDS")
+    firmware.add_argument("--burn-timeout", type=float, default=300.0, metavar="SECONDS")
     firmware.add_argument("--write-timeout", type=float, default=60.0, metavar="SECONDS")
     firmware.add_argument("--force", action="store_true", help="allow retransmitting the same master version")
 
@@ -1070,6 +1071,7 @@ def main(argv: list[str] | None = None) -> None:
             timeout=args.timeout,
             write_timeout=args.write_timeout,
             burn_wait=args.burn_wait,
+            burn_timeout=args.burn_timeout,
             apply=args.apply,
             yes=args.yes,
             force=args.force,

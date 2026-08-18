@@ -84,6 +84,9 @@ The firmware command checks every `.abin` header and payload CRC32 and prints
 the complete plan without transmitting bytes by default. After reviewing the
 plan, an operator may explicitly apply it with `--apply --yes`. The package is
 operator-supplied; this project neither ships nor downloads Toshiba firmware.
+During an apply, `burnstatus` is polled until the printer reports `00`; a
+nonzero status means that the flash operation is still in progress. The wait is
+bounded by `--burn-timeout` (300 seconds by default).
 
 ## Safety model
 
@@ -91,7 +94,7 @@ Status and preview commands are read-only. Network settings, emulation,
 parameter, reset, filesystem-transfer headers, and firmware operations never
 transmit changes unless both `--apply` and `--yes` are present. Firmware also
 requires a ready B-FV4 target, validates the package before opening a socket,
-checks `burnstatus`, and only then sends `reboot 1`/`exit`. Test changes on one
+checks `burnstatus` until completion, and only then sends `reboot 1`/`exit`. Test changes on one
 printer first and keep a recovery path available before changing LAN settings.
 
 The tool speaks the printer's documented TPCL/socket interfaces. It does not

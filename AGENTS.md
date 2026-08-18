@@ -50,7 +50,9 @@ crossing a boundary is validated by a pydantic model with
 - Firmware is a separate flash-image protocol, not a filesystem transfer. It
   may transmit only after package/header/payload CRC validation, target
   preflight, and explicit `--apply --yes`. Keep the default chunk size at 8192
-  bytes unless a protocol source proves a different safe limit.
+  bytes unless a protocol source proves a different safe limit. `burnstatus`
+  returns a nonzero first field while burning is still in progress; poll until
+  the first field is `00` before sending reboot/exit.
 
 ## Protocol-registry principle
 
