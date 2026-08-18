@@ -8,6 +8,8 @@ provided for operators who need predictable LAN diagnostics and configuration.
 
 - read printer status, receive-buffer state, firmware, model, and serial data;
 - inspect and preview LAN, socket, TPCL, emulation, and maintenance commands;
+- preview and, with explicit confirmation, define inline Code 128 and QR
+  barcode formats using the documented TPCL `ESC XB` command;
 - inspect a self-describing read-only query registry with exact request bytes;
 - preserve long diagnostic/list responses up to 64 KiB and report truncation;
 - apply mutating commands only with an explicit `--apply --yes` confirmation;
@@ -98,6 +100,18 @@ toshiba-bfv4 pc-save-call 192.0.2.10 --id 7 --auto-call --apply --yes
 `pc-save-start` and `pc-save-end` only generate previews. Raw command-body
 streaming is deliberately not exposed because an interrupted save session can
 leave the printer in PC-save mode without validating the stored commands.
+
+Preview an inline Code 128 or QR format:
+
+```bash
+toshiba-bfv4 barcode-code128 192.0.2.10 --data 'ORDER-123' --x 50 --y 80
+toshiba-bfv4 qr 192.0.2.10 --data 'https://example.invalid/ORDER-123' --x 50 --y 80
+```
+
+These commands define a barcode format number; they do not print a label by
+themselves. Data is limited to ASCII in this first implementation. QR manual
+model, mask, and structured-append options require `--mode M`; automatic mode
+leaves those choices to the printer.
 
 Apply a change only after reviewing the preview:
 

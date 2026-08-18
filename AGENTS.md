@@ -77,6 +77,11 @@ The single-printer CLI provides these commands:
   intentionally not implemented.
 - `pc-save-call HOST --id ID` — preview or apply a stored PC command call;
   `--auto-call` is an explicit persistent power-on change.
+- `barcode-code128 HOST --data DATA` — preview or apply an inline Code 128
+  `ESC XB` format definition.
+- `qr HOST --data DATA` — preview or apply an inline QR `ESC XB` format
+  definition; `--mode M` enables explicit model, mask, and structured-append
+  options.
 - `download-paths` — list supported printer-side filesystem paths.
 - `download-header PATH --filename NAME --size SIZE_BYTES` — preview a
   filesystem-download header. It never transmits file data.
@@ -117,6 +122,9 @@ and `--yes` are supplied.
   queries. Do not add automatic retries for mutating commands.
 - Raw printer-filesystem transfers (file bytes) remain disabled; only the
   header/plan preview exists. Do not add file transmission casually.
+- Barcode and QR builders must remain byte-exact and ASCII-bounded until a
+  separate code-page/field-link path is verified. The `ESC XB` format command
+  defines a barcode slot; it is not a label-print command.
 - Firmware is a separate flash-image protocol, not a filesystem transfer. It
   may transmit only after package/header/payload CRC validation, target
   preflight, and explicit `--apply --yes`. Keep the default chunk size at 8192

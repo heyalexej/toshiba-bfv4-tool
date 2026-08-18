@@ -18,6 +18,8 @@ All TPCL commands use the `ESC + ASCII command + LF + NUL` (`frame`) envelope.
 | Emulation (AUTO) | currently `setnvrs 1` + `33,1,1;` (AUTO) or `33,1,2;` (AUTO2) — see open question 1 |
 | Reset | `ESC Z0 LF NUL` or `ESC WR LF NUL`; `ESC ESC reboot 0|1|3 CR LF`, `facreset 0`, `resetcommand 0`, `selftest 0` |
 | PC command save/call | `XO`/`XP` are preview-only; `XQ` is callable with auto-call disabled by default |
+| Linear barcode | `ESC XBaa;bbbb,cccc,d,e,ff,k,llll(=data) LF NUL`; the current builder covers Code 128 with automatic code/check selection |
+| QR code | `ESC XBaa;bbbb,cccc,T,e,ff,g,h(,Mi)(,Kj)(,Jkkllmm)(=data) LF NUL`; automatic and manual QR previews are supported |
 
 ## Safety logic
 
@@ -49,3 +51,9 @@ hex/ASCII preview. Tests verify both paths offline against a network-free stub.
 5. **PC-save body streaming:** `XO` stores subsequent TPCL bytes without
    checking them. This tool therefore previews `XO`/`XP` but does not transmit
    an arbitrary save body.
+6. **Barcode data encoding:** the current Code 128 and QR builders accept
+   printable ASCII only. TPCL supports additional code-page/Kanji paths, but
+   those need a dedicated byte-oriented API before they can be exposed safely.
+7. **Barcode format versus print form:** `ESC XB` defines a numbered format
+   slot. A separate label/form command must reference that slot to produce
+   output; these builders intentionally do not claim to print a label.

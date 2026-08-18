@@ -231,6 +231,68 @@ class PcSaveCallSettings(BaseModel):
     auto_call: bool = False
 
 
+class Code128Settings(BaseModel):
+    """Validated TPCL format fields for a Code 128 barcode."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    x: int = Field(ge=0, le=9999)
+    y: int = Field(ge=0, le=99999)
+    module_width: int = Field(default=2, ge=1, le=15)
+    rotation: Literal[0, 1, 2, 3] = 0
+    height: int = Field(default=100, ge=0, le=1000)
+    data: str = Field(min_length=1, max_length=126)
+
+    @field_validator("data")
+    @classmethod
+    def validate_data(cls, value: str) -> str:
+        if any(character in value for character in "\x00\r\n"):
+            raise ValueError("barcode data may not contain NUL or line breaks")
+        try:
+            value.encode("ascii")
+        except UnicodeEncodeError as error:
+            raise ValueError("barcode data must be ASCII") from error
+        return value
+
+
+class QrCodeSettings(BaseModel):
+    """Validated TPCL QR-code format fields for the B-FV4 family."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    barcode_number: int = Field(ge=0, le=31)
+    x: int = Field(ge=0, le=9999)
+    y: int = Field(ge=0, le=99999)
+    error_correction: Literal["L", "M", "Q", "H"] = "M"
+    cell_width: int = Field(default=4, ge=0, le=52)
+    mode: Literal["A", "M"] = "A"
+    rotation: Literal[0, 1, 2, 3] = 0
+    model: Literal[1, 2, 3] | None = None
+    mask: int | None = Field(default=None, ge=0, le=8)
+    connection_number: int | None = Field(default=None, ge=1, le=16)
+    connection_total: int | None = Field(default=None, ge=1, le=16)
+    connection_xor: int | None = Field(default=None, ge=0, le=255)
+    data: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def validate_qr_options(self) -> QrCodeSettings:
+        connection = (self.connection_number, self.connection_total, self.connection_xor)
+        if any(value is not None for value in connection) and not all(value is not None for value in connection):
+            raise ValueError("QR connection_number, connection_total and connection_xor must be supplied together")
+        if self.mode == "A" and any(value is not None for value in (self.model, self.mask, *connection)):
+            raise ValueError("QR model, mask and connection options require manual mode")
+        if self.model == 3 and self.error_correction != "H":
+            raise ValueError("MicroQR model 3 requires H error correction")
+        if any(character in self.data for character in "\x00\r\n"):
+            raise ValueError("QR data may not contain NUL or line breaks")
+        try:
+            self.data.encode("ascii")
+        except UnicodeEncodeError as error:
+            raise ValueError("QR data must be ASCII") from error
+        return self
+
+
 @dataclass(frozen=True)
 class CapabilityManifest:
     """Static inventory of supported feature groups."""
@@ -769,6 +831,105 @@ def build_pc_save_call_command(
         payload_hex=payload.hex(" "),
         payload_ascii=display_payload(payload),
         requires_reset=settings.auto_call,
+        dangerous=True,
+    )
+
+
+def build_code128_command(
+    data: str,
+    *,
+    barcode_number: int = 0,
+    x: int = 0,
+    y: int = 0,
+    module_width: int = 2,
+    rotation: int = 0,
+    height: int = 100,
+) -> CommandPreview:
+    """Build a TPCL Code 128 format command with automatic code selection."""
+
+    settings = Code128Settings(
+        barcode_number=barcode_number,
+        x=x,
+        y=y,
+        module_width=module_width,
+        rotation=rotation,
+        height=height,
+        data=data,
+    )
+    payload = frame(
+        f"XB{settings.barcode_number:02d};{settings.x:04d},{settings.y:05d},9,3,"
+        f"{settings.module_width:02d},{settings.rotation},{settings.height:04d}={settings.data}"
+    )
+    return CommandPreview(
+        operation="tpcl.barcode-code128",
+        effect=(
+            f"Define Code 128 barcode {settings.barcode_number:02d} at "
+            f"({settings.x / 10:.1f}, {settings.y / 10:.1f}) mm; data is not printed until a label format uses it."
+        ),
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_qr_code_command(
+    data: str,
+    *,
+    barcode_number: int = 0,
+    x: int = 0,
+    y: int = 0,
+    error_correction: str = "M",
+    cell_width: int = 4,
+    mode: str = "A",
+    rotation: int = 0,
+    model: int | None = None,
+    mask: int | None = None,
+    connection_number: int | None = None,
+    connection_total: int | None = None,
+    connection_xor: int | None = None,
+) -> CommandPreview:
+    """Build a TPCL QR format command for inline ASCII data.
+
+    The builder covers the B-FV4 QR form (`ESC XB`) and deliberately does not
+    accept field-link references or arbitrary binary/Kanji data. Those need a
+    label-form/codepage-aware path rather than silently pretending that Python
+    text is byte-identical to the printer's selected code page.
+    """
+
+    settings = QrCodeSettings(
+        barcode_number=barcode_number,
+        x=x,
+        y=y,
+        error_correction=error_correction,
+        cell_width=cell_width,
+        mode=mode,
+        rotation=rotation,
+        model=model,
+        mask=mask,
+        connection_number=connection_number,
+        connection_total=connection_total,
+        connection_xor=connection_xor,
+        data=data,
+    )
+    body = (
+        f"XB{settings.barcode_number:02d};{settings.x:04d},{settings.y:05d},T,"
+        f"{settings.error_correction},{settings.cell_width:02d},{settings.mode},{settings.rotation}"
+    )
+    if settings.model is not None:
+        body += f",M{settings.model}"
+    if settings.mask is not None:
+        body += f",K{settings.mask}"
+    if settings.connection_number is not None:
+        body += f",J{settings.connection_number:02d}{settings.connection_total:02d}{settings.connection_xor:02X}"
+    payload = frame(f"{body}={settings.data}")
+    return CommandPreview(
+        operation="tpcl.barcode-qr",
+        effect=(
+            f"Define QR code {settings.barcode_number:02d} at "
+            f"({settings.x / 10:.1f}, {settings.y / 10:.1f}) mm; data is not printed until a label format uses it."
+        ),
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
         dangerous=True,
     )
 
@@ -1320,6 +1481,34 @@ def make_parser() -> argparse.ArgumentParser:
         help="enable automatic call at printer power-on; requires explicit --apply --yes",
     )
 
+    barcode = subparsers.add_parser("barcode-code128", help="preview/apply an inline Code 128 barcode format")
+    add_target(barcode)
+    add_write_flags(barcode)
+    barcode.add_argument("--data", required=True, help="ASCII barcode data")
+    barcode.add_argument("--number", type=int, default=0, dest="barcode_number", metavar="00-31")
+    barcode.add_argument("--x", type=int, default=0, metavar="TENTHS_MM")
+    barcode.add_argument("--y", type=int, default=0, metavar="TENTHS_MM")
+    barcode.add_argument("--module-width", type=int, default=2, metavar="DOTS")
+    barcode.add_argument("--rotation", type=int, choices=(0, 1, 2, 3), default=0)
+    barcode.add_argument("--height", type=int, default=100, metavar="TENTHS_MM")
+
+    qr = subparsers.add_parser("qr", help="preview/apply an inline TPCL QR-code format")
+    add_target(qr)
+    add_write_flags(qr)
+    qr.add_argument("--data", required=True, help="ASCII QR data")
+    qr.add_argument("--number", type=int, default=0, dest="barcode_number", metavar="00-31")
+    qr.add_argument("--x", type=int, default=0, metavar="TENTHS_MM")
+    qr.add_argument("--y", type=int, default=0, metavar="TENTHS_MM")
+    qr.add_argument("--ecc", choices=("L", "M", "Q", "H"), default="M", dest="error_correction")
+    qr.add_argument("--cell-width", type=int, default=4, metavar="DOTS")
+    qr.add_argument("--mode", choices=("A", "M"), default="A")
+    qr.add_argument("--rotation", type=int, choices=(0, 1, 2, 3), default=0)
+    qr.add_argument("--model", type=int, choices=(1, 2, 3))
+    qr.add_argument("--mask", type=int, choices=tuple(range(9)))
+    qr.add_argument("--connection-number", type=int, metavar="01-16")
+    qr.add_argument("--connection-total", type=int, metavar="01-16")
+    qr.add_argument("--connection-xor", type=lambda value: int(value, 16), metavar="00-FF")
+
     download_paths = subparsers.add_parser("download-paths", help="show supported printer-side filesystem paths")
     download_paths.set_defaults(handler=lambda args: print(json.dumps(DOWNLOAD_PATHS, indent=2), flush=True))
 
@@ -1469,6 +1658,52 @@ def main(argv: list[str] | None = None) -> None:
                     drive=args.drive,
                     status_response=args.status_response,
                     auto_call=args.auto_call,
+                )
+            ],
+            timeout=args.timeout,
+            settle_delay=args.settle_delay,
+            apply=args.apply,
+            yes=args.yes,
+        )
+        return
+    if args.command == "barcode-code128":
+        apply_previews(
+            parse_target(args),
+            [
+                build_code128_command(
+                    args.data,
+                    barcode_number=args.barcode_number,
+                    x=args.x,
+                    y=args.y,
+                    module_width=args.module_width,
+                    rotation=args.rotation,
+                    height=args.height,
+                )
+            ],
+            timeout=args.timeout,
+            settle_delay=args.settle_delay,
+            apply=args.apply,
+            yes=args.yes,
+        )
+        return
+    if args.command == "qr":
+        apply_previews(
+            parse_target(args),
+            [
+                build_qr_code_command(
+                    args.data,
+                    barcode_number=args.barcode_number,
+                    x=args.x,
+                    y=args.y,
+                    error_correction=args.error_correction,
+                    cell_width=args.cell_width,
+                    mode=args.mode,
+                    rotation=args.rotation,
+                    model=args.model,
+                    mask=args.mask,
+                    connection_number=args.connection_number,
+                    connection_total=args.connection_total,
+                    connection_xor=args.connection_xor,
                 )
             ],
             timeout=args.timeout,

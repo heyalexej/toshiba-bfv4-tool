@@ -213,3 +213,48 @@ def test_pc_save_identifiers_and_drives_are_validated() -> None:
         MODULE.build_pc_save_start_command(100)
     with pytest.raises(ValueError):
         MODULE.build_pc_save_call_command(1, drive=2)
+
+
+def test_code128_builder_matches_tpcl_xb_format() -> None:
+    preview = MODULE.build_code128_command("ABC123", barcode_number=7, x=12, y=345, rotation=1, height=80)
+    assert preview.payload_ascii == "\\x1bXB07;0012,00345,9,3,02,1,0080=ABC123\\n\\x00"
+    assert preview.dangerous is True
+
+
+def test_code128_builder_rejects_framing_controls_and_non_ascii() -> None:
+    with pytest.raises(ValueError, match="line breaks"):
+        MODULE.build_code128_command("ABC\n123")
+    with pytest.raises(ValueError, match="ASCII"):
+        MODULE.build_code128_command("ä")
+    with pytest.raises(ValueError, match="data"):
+        MODULE.build_code128_command("")
+
+
+def test_qr_builder_matches_automatic_tpcl_xb_format() -> None:
+    preview = MODULE.build_qr_code_command("https://example.invalid", barcode_number=3, x=15, y=125)
+    assert preview.payload_ascii == ("\\x1bXB03;0015,00125,T,M,04,A,0=https://example.invalid\\n\\x00")
+
+
+def test_qr_builder_matches_manual_model_mask_and_connection() -> None:
+    preview = MODULE.build_qr_code_command(
+        "PAYLOAD",
+        mode="M",
+        error_correction="H",
+        model=3,
+        mask=8,
+        connection_number=2,
+        connection_total=2,
+        connection_xor=0xAF,
+    )
+    assert preview.payload_ascii == "\\x1bXB00;0000,00000,T,H,04,M,0,M3,K8,J0202AF=PAYLOAD\\n\\x00"
+
+
+def test_qr_builder_validates_manual_options_and_data() -> None:
+    with pytest.raises(ValueError, match="manual mode"):
+        MODULE.build_qr_code_command("data", model=2)
+    with pytest.raises(ValueError, match="MicroQR"):
+        MODULE.build_qr_code_command("data", mode="M", model=3, error_correction="M")
+    with pytest.raises(ValueError, match="supplied together"):
+        MODULE.build_qr_code_command("data", mode="M", connection_number=1)
+    with pytest.raises(ValueError, match="line breaks"):
+        MODULE.build_qr_code_command("data\r")
