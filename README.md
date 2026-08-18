@@ -76,6 +76,17 @@ Preview a LAN change:
 toshiba-bfv4 lan 192.0.2.10 --socket on --socket-port 9100
 ```
 
+Create a portable, partial settings bundle locally and preview it against a
+printer:
+
+```bash
+toshiba-bfv4 settings-export ./printer-settings.json --socket on --socket-port 9100
+toshiba-bfv4 settings-apply 192.0.2.10 --file ./printer-settings.json
+```
+
+Bundles are operator-authored; they are not read-backs of the printer. Applying
+one still requires both `--apply` and `--yes`.
+
 Apply a change only after reviewing the preview:
 
 ```bash

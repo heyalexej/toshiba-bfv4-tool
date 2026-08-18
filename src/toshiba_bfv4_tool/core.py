@@ -15,9 +15,10 @@ import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final
+from pathlib import Path
+from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ESC: Final[bytes] = b"\x1b"
 LF_NUL: Final[bytes] = b"\x0a\x00"
@@ -139,6 +140,74 @@ class LanSettings(BaseModel):
         if "FF" in (normalized[i : i + 2] for i in range(0, len(normalized), 2)):
             raise ValueError("DHCP client ID may not contain FF")
         return normalized
+
+
+class TpclParameterSettings(BaseModel):
+    """Optional values for the TPCL ESC Z2;1 parameter page."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    codepage: str | None = None
+    zero_font: str | None = None
+    baud: str | None = None
+    data_bits: str | None = None
+    stop_bits: str | None = None
+    parity: str | None = None
+    flow_control: str | None = None
+    destination: str | None = None
+    forward_feed: str | None = None
+    control_code: str | None = None
+    feed_key: str | None = None
+    euro_code: str | None = None
+    head_check: str | None = None
+    auto_calibration: str | None = None
+
+    @model_validator(mode="after")
+    def validate_values(self) -> TpclParameterSettings:
+        choices = {
+            "codepage": set("0123456789ABCDEF"),
+            "zero_font": {"0", "1"},
+            "baud": set("0123456"),
+            "data_bits": {"0", "1"},
+            "stop_bits": {"0", "1"},
+            "parity": {"0", "1", "2"},
+            "flow_control": set("01234"),
+            "destination": {"0", "5"},
+            "forward_feed": {"0", "1"},
+            "control_code": {"0", "1", "2"},
+            "feed_key": {"0", "1"},
+            "head_check": {"0", "1"},
+            "auto_calibration": {"0", "1", "2"},
+        }
+        for name, allowed in choices.items():
+            value = getattr(self, name)
+            if value is not None and value not in allowed:
+                raise ValueError(f"{name} must be one of: {', '.join(sorted(allowed))}")
+        if self.euro_code is not None:
+            if len(self.euro_code) != 2 or any(char not in "0123456789ABCDEFabcdef" for char in self.euro_code):
+                raise ValueError("euro_code must be two hexadecimal characters")
+        return self
+
+
+class FineAdjustmentSettings(BaseModel):
+    """Optional values for the TPCL ESC Z2;2 fine adjustment page."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    x_direction: Literal["+", "-"] | None = None
+    x_value: int | None = Field(default=None, ge=0, le=995)
+
+
+class SettingsBundle(BaseModel):
+    """A validated, portable set of operator-authored printer settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal[1] = 1
+    lan: LanSettings | None = None
+    tpcl_parameter: TpclParameterSettings | None = None
+    fine_adjustment: FineAdjustmentSettings | None = None
+    tpcl_general: dict[int, str] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -569,6 +638,51 @@ def build_tpcl_general_command(parameters: Mapping[int, str]) -> CommandPreview:
     )
 
 
+def build_settings_commands(bundle: SettingsBundle) -> list[CommandPreview]:
+    """Build the guarded command list represented by a settings bundle."""
+
+    commands: list[CommandPreview] = []
+    if bundle.lan is not None:
+        commands.extend(build_lan_commands(bundle.lan))
+    if bundle.tpcl_parameter is not None:
+        values = bundle.tpcl_parameter.model_dump(exclude_none=True)
+        commands.append(build_parameter_command(**values))
+    if bundle.fine_adjustment is not None:
+        values = bundle.fine_adjustment.model_dump(exclude_none=True)
+        commands.append(build_fine_adjustment_command(**values))
+    if bundle.tpcl_general:
+        commands.append(build_tpcl_general_command(bundle.tpcl_general))
+    if not commands:
+        raise ValueError("settings bundle contains no settings to apply")
+    return commands
+
+
+def load_settings_bundle(path: str | Path) -> SettingsBundle:
+    """Load and validate a JSON settings bundle from disk."""
+
+    source = Path(path)
+    try:
+        data = json.loads(source.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise ValueError(f"could not read settings bundle {source}: {error}") from error
+    except json.JSONDecodeError as error:
+        raise ValueError(f"settings bundle is not valid JSON: {error}") from error
+    return SettingsBundle.model_validate(data)
+
+
+def save_settings_bundle(path: str | Path, bundle: SettingsBundle) -> None:
+    """Write a validated JSON settings bundle without contacting a printer."""
+
+    destination = Path(path)
+    try:
+        destination.write_text(
+            json.dumps(bundle.model_dump(mode="json"), indent=2) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as error:
+        raise ValueError(f"could not write settings bundle {destination}: {error}") from error
+
+
 def build_emulation_command(mode: str, *, add_arg: bool = False) -> CommandPreview:
     """Build an emulation selector command."""
 
@@ -917,6 +1031,42 @@ def add_target(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
 
 
+def add_optional_parameter_options(parser: argparse.ArgumentParser) -> None:
+    for name in (
+        "codepage",
+        "zero-font",
+        "baud",
+        "data-bits",
+        "stop-bits",
+        "parity",
+        "flow-control",
+        "destination",
+        "forward-feed",
+        "control-code",
+        "feed-key",
+        "euro-code",
+        "head-check",
+        "auto-calibration",
+    ):
+        parser.add_argument(f"--{name}", default=None)
+
+
+def parse_tpcl_general_values(items: Iterable[str]) -> dict[int, str]:
+    parameters: dict[int, str] = {}
+    for item in items:
+        if "=" not in item:
+            raise ValueError(f"parameter must be CODE=VALUE: {item}")
+        code_text, value = item.split("=", 1)
+        try:
+            code = int(code_text, 10)
+        except ValueError as error:
+            raise ValueError(f"parameter code must be an integer: {item}") from error
+        if code in parameters:
+            raise ValueError(f"duplicate TPCL-General code: {code}")
+        parameters[code] = value
+    return parameters
+
+
 def make_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1039,6 +1189,27 @@ def make_parser() -> argparse.ArgumentParser:
         help="e.g. 20=0 21=0 28=15",
     )
 
+    settings_export = subparsers.add_parser(
+        "settings-export", help="write a validated local settings bundle from supplied values"
+    )
+    settings_export.add_argument("path", type=Path)
+    settings_export.add_argument("--ip", type=ipaddress.IPv4Address)
+    settings_export.add_argument("--gateway", type=ipaddress.IPv4Address)
+    settings_export.add_argument("--subnet", type=ipaddress.IPv4Address)
+    settings_export.add_argument("--dhcp", choices=("on", "off"))
+    settings_export.add_argument("--client-id")
+    settings_export.add_argument("--socket", choices=("on", "off"), dest="socket_enabled")
+    settings_export.add_argument("--socket-port", type=int)
+    add_optional_parameter_options(settings_export)
+    settings_export.add_argument("--x-direction", choices=("+", "-"))
+    settings_export.add_argument("--x", type=int, dest="x_value", metavar="TENTHS_MM")
+    settings_export.add_argument("--tpcl-general", action="append", default=[], metavar="CODE=VALUE")
+
+    settings_apply = subparsers.add_parser("settings-apply", help="preview/apply a local settings bundle")
+    add_target(settings_apply)
+    add_write_flags(settings_apply)
+    settings_apply.add_argument("--file", required=True, type=Path)
+
     download_paths = subparsers.add_parser("download-paths", help="show supported printer-side filesystem paths")
     download_paths.set_defaults(handler=lambda args: print(json.dumps(DOWNLOAD_PATHS, indent=2), flush=True))
 
@@ -1077,6 +1248,50 @@ def make_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def settings_bundle_from_args(args: argparse.Namespace) -> SettingsBundle:
+    lan_values = {
+        "ip": args.ip,
+        "gateway": args.gateway,
+        "subnet": args.subnet,
+        "dhcp": None if args.dhcp is None else args.dhcp == "on",
+        "client_id": args.client_id,
+        "socket_enabled": None if args.socket_enabled is None else args.socket_enabled == "on",
+        "socket_port": args.socket_port,
+    }
+    lan = LanSettings(**lan_values) if any(value is not None for value in lan_values.values()) else None
+
+    parameter_names = (
+        "codepage",
+        "zero_font",
+        "baud",
+        "data_bits",
+        "stop_bits",
+        "parity",
+        "flow_control",
+        "destination",
+        "forward_feed",
+        "control_code",
+        "feed_key",
+        "euro_code",
+        "head_check",
+        "auto_calibration",
+    )
+    parameter_values = {name: getattr(args, name) for name in parameter_names}
+    tpcl_parameter = TpclParameterSettings(**parameter_values) if any(parameter_values.values()) else None
+
+    fine_values = {"x_direction": args.x_direction, "x_value": args.x_value}
+    fine_adjustment = (
+        FineAdjustmentSettings(**fine_values) if any(value is not None for value in fine_values.values()) else None
+    )
+
+    return SettingsBundle(
+        lan=lan,
+        tpcl_parameter=tpcl_parameter,
+        fine_adjustment=fine_adjustment,
+        tpcl_general=parse_tpcl_general_values(args.tpcl_general),
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     args = make_parser().parse_args(argv)
     if args.command == "capabilities":
@@ -1098,6 +1313,27 @@ def main(argv: list[str] | None = None) -> None:
         print(
             "Preview only: raw file bytes are not transmitted by this command.",
             flush=True,
+        )
+        return
+    if args.command == "settings-export":
+        bundle = settings_bundle_from_args(args)
+        if (
+            any(section is not None for section in (bundle.lan, bundle.tpcl_parameter, bundle.fine_adjustment))
+            or bundle.tpcl_general
+        ):
+            build_settings_commands(bundle)
+        save_settings_bundle(args.path, bundle)
+        print(json.dumps(bundle.model_dump(mode="json"), indent=2), flush=True)
+        return
+    if args.command == "settings-apply":
+        bundle = load_settings_bundle(args.file)
+        apply_previews(
+            parse_target(args),
+            build_settings_commands(bundle),
+            timeout=args.timeout,
+            settle_delay=args.settle_delay,
+            apply=args.apply,
+            yes=args.yes,
         )
         return
     if args.command == "firmware":
@@ -1229,18 +1465,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         return
     if args.command == "tpcl-general":
-        parameters: dict[int, str] = {}
-        for item in args.parameters:
-            if "=" not in item:
-                raise ValueError(f"parameter must be CODE=VALUE: {item}")
-            code_text, value = item.split("=", 1)
-            try:
-                code = int(code_text, 10)
-            except ValueError as exc:
-                raise ValueError(f"parameter code must be an integer: {item}") from exc
-            if code in parameters:
-                raise ValueError(f"duplicate TPCL-General code: {code}")
-            parameters[code] = value
+        parameters = parse_tpcl_general_values(args.parameters)
         apply_previews(
             target,
             [build_tpcl_general_command(parameters)],

@@ -68,6 +68,10 @@ The single-printer CLI provides these commands:
   apply a TPCL parameter page using `setnvrr` or `setnvrs`.
 - `tpcl-general HOST CODE=VALUE ...` — preview or apply TPCL-General parameter
   updates.
+- `settings-export FILE [OPTIONS]` — write a partial, validated local JSON
+  bundle; it does not contact a printer or read settings back from one.
+- `settings-apply HOST --file FILE` — preview or apply a bundle through the
+  same `--apply --yes` gate as individual writes.
 - `download-paths` — list supported printer-side filesystem paths.
 - `download-header PATH --filename NAME --size SIZE_BYTES` — preview a
   filesystem-download header. It never transmits file data.

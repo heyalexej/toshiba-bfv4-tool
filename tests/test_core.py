@@ -158,3 +158,32 @@ def test_internal_diagnostic_query_uses_large_limit_and_reports_truncation(
     assert captured == [MODULE.DIAGNOSTIC_MAX_RESPONSE]
     assert result["response_truncated"] is True
     assert result["response_limit"] == MODULE.DIAGNOSTIC_MAX_RESPONSE
+
+
+def test_settings_bundle_round_trips_and_builds_partial_commands(tmp_path: Path) -> None:
+    path = tmp_path / "printer-settings.json"
+    bundle = MODULE.SettingsBundle(
+        lan=MODULE.LanSettings(socket_enabled=True, socket_port=9100),
+        tpcl_general={20: "0", 28: "15"},
+    )
+    MODULE.save_settings_bundle(path, bundle)
+    loaded = MODULE.load_settings_bundle(path)
+    previews = MODULE.build_settings_commands(loaded)
+    assert loaded == bundle
+    assert [preview.operation for preview in previews] == [
+        "lan.socket",
+        "parameter-page.tpcl-general",
+    ]
+    assert "20,1,0;28,2,15;" in previews[1].payload_ascii
+
+
+def test_empty_settings_bundle_cannot_be_applied() -> None:
+    with pytest.raises(ValueError, match="contains no settings"):
+        MODULE.build_settings_commands(MODULE.SettingsBundle())
+
+
+def test_settings_bundle_validates_tpcl_parameter_choices() -> None:
+    with pytest.raises(ValueError, match="codepage must be one of"):
+        MODULE.TpclParameterSettings(codepage="Z")
+    with pytest.raises(ValueError, match="euro_code must be two hexadecimal"):
+        MODULE.TpclParameterSettings(euro_code="GG")
