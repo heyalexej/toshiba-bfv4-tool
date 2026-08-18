@@ -187,3 +187,29 @@ def test_settings_bundle_validates_tpcl_parameter_choices() -> None:
         MODULE.TpclParameterSettings(codepage="Z")
     with pytest.raises(ValueError, match="euro_code must be two hexadecimal"):
         MODULE.TpclParameterSettings(euro_code="GG")
+
+
+def test_pc_save_commands_are_exact_and_auto_call_is_explicit() -> None:
+    start = MODULE.build_pc_save_start_command(7, drive=1, status_response=True)
+    assert start.payload_ascii == "\\x1bXO;07,1,1\\n\\x00"
+    assert start.dangerous is True
+
+    terminate = MODULE.build_pc_save_terminate_command()
+    assert terminate.payload_ascii == "\\x1bXP\\n\\x00"
+
+    call = MODULE.build_pc_save_call_command(7, drive=1)
+    assert call.payload_ascii == "\\x1bXQ;07,1,0,M\\n\\x00"
+    assert call.requires_reset is False
+
+    auto_call = MODULE.build_pc_save_call_command(7, auto_call=True)
+    assert auto_call.payload_ascii == "\\x1bXQ;07,0,0,L\\n\\x00"
+    assert auto_call.requires_reset is True
+
+
+def test_pc_save_identifiers_and_drives_are_validated() -> None:
+    with pytest.raises(ValueError):
+        MODULE.build_pc_save_call_command(0)
+    with pytest.raises(ValueError):
+        MODULE.build_pc_save_start_command(100)
+    with pytest.raises(ValueError):
+        MODULE.build_pc_save_call_command(1, drive=2)

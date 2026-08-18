@@ -210,6 +210,27 @@ class SettingsBundle(BaseModel):
     tpcl_general: dict[int, str] = Field(default_factory=dict)
 
 
+class PcSaveStartSettings(BaseModel):
+    """Validated parameters for opening the TPCL PC-save mode."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    identifier: int = Field(ge=1, le=99)
+    drive: Literal[0, 1] = 0
+    status_response: bool = False
+
+
+class PcSaveCallSettings(BaseModel):
+    """Validated parameters for calling a stored TPCL PC command stream."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    identifier: int = Field(ge=1, le=99)
+    drive: Literal[0, 1] = 0
+    status_response: bool = False
+    auto_call: bool = False
+
+
 @dataclass(frozen=True)
 class CapabilityManifest:
     """Static inventory of supported feature groups."""
@@ -681,6 +702,75 @@ def save_settings_bundle(path: str | Path, bundle: SettingsBundle) -> None:
         )
     except OSError as error:
         raise ValueError(f"could not write settings bundle {destination}: {error}") from error
+
+
+def build_pc_save_start_command(identifier: int, *, drive: int = 0, status_response: bool = False) -> CommandPreview:
+    """Build a preview for opening the TPCL PC-command save mode.
+
+    This command is intentionally preview-only at the CLI: until a dedicated
+    streaming path exists, transmitting ``XO`` would leave the printer waiting
+    for a raw command body that this tool cannot safely provide.
+    """
+
+    settings = PcSaveStartSettings(identifier=identifier, drive=drive, status_response=status_response)
+    payload = frame(f"XO;{settings.identifier:02d},{settings.drive},{int(settings.status_response)}")
+    return CommandPreview(
+        operation="pc-save.start",
+        effect=(
+            f"Open PC-command save mode for ID {settings.identifier:02d} on drive {settings.drive}; "
+            "the printer will store subsequent TPCL bytes without executing them."
+        ),
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_pc_save_terminate_command() -> CommandPreview:
+    """Build a preview for terminating TPCL PC-command save mode."""
+
+    payload = frame("XP")
+    return CommandPreview(
+        operation="pc-save.terminate",
+        effect="Terminate PC-command save mode and return the printer to online operation.",
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        dangerous=True,
+    )
+
+
+def build_pc_save_call_command(
+    identifier: int,
+    *,
+    drive: int = 0,
+    status_response: bool = False,
+    auto_call: bool = False,
+) -> CommandPreview:
+    """Build a guarded call for a previously saved TPCL command stream."""
+
+    settings = PcSaveCallSettings(
+        identifier=identifier,
+        drive=drive,
+        status_response=status_response,
+        auto_call=auto_call,
+    )
+    call_mode = "L" if settings.auto_call else "M"
+    payload = frame(f"XQ;{settings.identifier:02d},{settings.drive},{int(settings.status_response)},{call_mode}")
+    return CommandPreview(
+        operation="pc-save.call",
+        effect=(
+            f"Call saved PC command ID {settings.identifier:02d} from drive {settings.drive}; "
+            + (
+                "enable automatic call at printer power-on."
+                if settings.auto_call
+                else "leave power-on auto-call disabled."
+            )
+        ),
+        payload_hex=payload.hex(" "),
+        payload_ascii=display_payload(payload),
+        requires_reset=settings.auto_call,
+        dangerous=True,
+    )
 
 
 def build_emulation_command(mode: str, *, add_arg: bool = False) -> CommandPreview:
@@ -1210,6 +1300,26 @@ def make_parser() -> argparse.ArgumentParser:
     add_write_flags(settings_apply)
     settings_apply.add_argument("--file", required=True, type=Path)
 
+    pc_save_start = subparsers.add_parser("pc-save-start", help="preview opening TPCL PC-command save mode")
+    pc_save_start.add_argument("--id", required=True, type=int, dest="identifier", metavar="01-99")
+    pc_save_start.add_argument("--drive", choices=(0, 1), type=int, default=0)
+    pc_save_start.add_argument("--status-response", action="store_true")
+
+    pc_save_end = subparsers.add_parser("pc-save-end", help="preview terminating TPCL PC-command save mode")
+    pc_save_end.set_defaults()
+
+    pc_save_call = subparsers.add_parser("pc-save-call", help="preview/apply a stored TPCL PC command stream")
+    add_target(pc_save_call)
+    add_write_flags(pc_save_call)
+    pc_save_call.add_argument("--id", required=True, type=int, dest="identifier", metavar="01-99")
+    pc_save_call.add_argument("--drive", choices=(0, 1), type=int, default=0)
+    pc_save_call.add_argument("--status-response", action="store_true")
+    pc_save_call.add_argument(
+        "--auto-call",
+        action="store_true",
+        help="enable automatic call at printer power-on; requires explicit --apply --yes",
+    )
+
     download_paths = subparsers.add_parser("download-paths", help="show supported printer-side filesystem paths")
     download_paths.set_defaults(handler=lambda args: print(json.dumps(DOWNLOAD_PATHS, indent=2), flush=True))
 
@@ -1330,6 +1440,37 @@ def main(argv: list[str] | None = None) -> None:
         apply_previews(
             parse_target(args),
             build_settings_commands(bundle),
+            timeout=args.timeout,
+            settle_delay=args.settle_delay,
+            apply=args.apply,
+            yes=args.yes,
+        )
+        return
+    if args.command == "pc-save-start":
+        preview = build_pc_save_start_command(
+            args.identifier,
+            drive=args.drive,
+            status_response=args.status_response,
+        )
+        print(json.dumps(preview.model_dump(mode="json"), indent=2), flush=True)
+        print("Preview only: PC-save body transmission is intentionally disabled.", flush=True)
+        return
+    if args.command == "pc-save-end":
+        preview = build_pc_save_terminate_command()
+        print(json.dumps(preview.model_dump(mode="json"), indent=2), flush=True)
+        print("Preview only: PC-save body transmission is intentionally disabled.", flush=True)
+        return
+    if args.command == "pc-save-call":
+        apply_previews(
+            parse_target(args),
+            [
+                build_pc_save_call_command(
+                    args.identifier,
+                    drive=args.drive,
+                    status_response=args.status_response,
+                    auto_call=args.auto_call,
+                )
+            ],
             timeout=args.timeout,
             settle_delay=args.settle_delay,
             apply=args.apply,

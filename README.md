@@ -87,6 +87,18 @@ toshiba-bfv4 settings-apply 192.0.2.10 --file ./printer-settings.json
 Bundles are operator-authored; they are not read-backs of the printer. Applying
 one still requires both `--apply` and `--yes`.
 
+Stored TPCL command streams can be called safely, with auto-call disabled by
+default:
+
+```bash
+toshiba-bfv4 pc-save-call 192.0.2.10 --id 7
+toshiba-bfv4 pc-save-call 192.0.2.10 --id 7 --auto-call --apply --yes
+```
+
+`pc-save-start` and `pc-save-end` only generate previews. Raw command-body
+streaming is deliberately not exposed because an interrupted save session can
+leave the printer in PC-save mode without validating the stored commands.
+
 Apply a change only after reviewing the preview:
 
 ```bash

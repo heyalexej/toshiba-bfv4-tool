@@ -17,6 +17,7 @@ All TPCL commands use the `ESC + ASCII command + LF + NUL` (`frame`) envelope.
 | Emulation (named) | `setnvrs 2` + `31,2,<value>;33,1,0;` with D=65, E=66, I=73, Z=90, TPCL=69 |
 | Emulation (AUTO) | currently `setnvrs 1` + `33,1,1;` (AUTO) or `33,1,2;` (AUTO2) — see open question 1 |
 | Reset | `ESC Z0 LF NUL` or `ESC WR LF NUL`; `ESC ESC reboot 0|1|3 CR LF`, `facreset 0`, `resetcommand 0`, `selftest 0` |
+| PC command save/call | `XO`/`XP` are preview-only; `XQ` is callable with auto-call disabled by default |
 
 ## Safety logic
 
@@ -45,3 +46,6 @@ hex/ASCII preview. Tests verify both paths offline against a network-free stub.
 4. **`dangerous` flag:** Informational only. The two-key gate (`--apply` +
    `--yes`) applies regardless; for example, `Z2;1`/`Z2;2` are not marked as
    `dangerous` but are still transmitted only with both switches.
+5. **PC-save body streaming:** `XO` stores subsequent TPCL bytes without
+   checking them. This tool therefore previews `XO`/`XP` but does not transmit
+   an arbitrary save body.

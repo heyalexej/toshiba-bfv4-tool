@@ -72,6 +72,11 @@ The single-printer CLI provides these commands:
   bundle; it does not contact a printer or read settings back from one.
 - `settings-apply HOST --file FILE` — preview or apply a bundle through the
   same `--apply --yes` gate as individual writes.
+- `pc-save-start --id ID` and `pc-save-end` — preview the TPCL PC-command
+  save-mode envelope; neither command transmits because raw save bodies are
+  intentionally not implemented.
+- `pc-save-call HOST --id ID` — preview or apply a stored PC command call;
+  `--auto-call` is an explicit persistent power-on change.
 - `download-paths` — list supported printer-side filesystem paths.
 - `download-header PATH --filename NAME --size SIZE_BYTES` — preview a
   filesystem-download header. It never transmits file data.
