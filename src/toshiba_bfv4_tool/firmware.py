@@ -348,7 +348,10 @@ def _validate_target(target: PrinterTarget, package: FirmwarePackage, *, timeout
     snapshot = read_status(target, timeout=timeout, settle_delay=0.25)
     if snapshot.errors:
         raise FirmwareError(f"preflight status errors: {json.dumps(snapshot.errors, sort_keys=True)}")
-    if snapshot.detail_name != "ready":
+    # ``last-label-issued`` is an idle terminal state, not a media or head
+    # error. It is safe for a flash update even when the operator has removed
+    # the label roll; actual no-paper/head/jam states remain blocked.
+    if snapshot.detail_name not in {"ready", "last-label-issued"}:
         raise FirmwareError(f"printer is not ready: {snapshot.detail_name or snapshot.detail}")
     if snapshot.remaining_count not in {None, 0}:
         raise FirmwareError(f"printer reports {snapshot.remaining_count} pending item(s)")

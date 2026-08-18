@@ -93,7 +93,7 @@ bounded by `--burn-timeout` (300 seconds by default).
 Status and preview commands are read-only. Network settings, emulation,
 parameter, reset, filesystem-transfer headers, and firmware operations never
 transmit changes unless both `--apply` and `--yes` are present. Firmware also
-requires a ready B-FV4 target, validates the package before opening a socket,
+requires a ready or idle-after-label B-FV4 target, validates the package before opening a socket,
 checks `burnstatus` until completion, and only then sends `reboot 1`/`exit`. Test changes on one
 printer first and keep a recovery path available before changing LAN settings.
 
