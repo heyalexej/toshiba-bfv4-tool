@@ -1007,6 +1007,15 @@ def make_parser() -> argparse.ArgumentParser:
     download_header.add_argument("--filename", required=True)
     download_header.add_argument("--size", type=int, required=True, dest="size_bytes")
 
+    firmware = subparsers.add_parser("firmware", help="validate and optionally apply a .zip/.abin firmware package")
+    add_target(firmware)
+    add_write_flags(firmware)
+    firmware.add_argument("--package", required=True, help="operator-supplied Toshiba firmware .zip or .abin")
+    firmware.add_argument("--chunk-size", type=int, default=8192, metavar="BYTES")
+    firmware.add_argument("--burn-wait", type=float, default=3.0, metavar="SECONDS")
+    firmware.add_argument("--write-timeout", type=float, default=60.0, metavar="SECONDS")
+    firmware.add_argument("--force", action="store_true", help="allow retransmitting the same master version")
+
     single = subparsers.add_parser("single", help="preview/apply safe mapped SingleCommand operations")
     add_target(single)
     add_write_flags(single)
@@ -1048,6 +1057,22 @@ def main(argv: list[str] | None = None) -> None:
         print(
             "Preview only: raw file bytes are not transmitted by this command.",
             flush=True,
+        )
+        return
+    if args.command == "firmware":
+        from .firmware import apply_firmware_update, load_and_plan
+
+        package, plan = load_and_plan(args.package, chunk_size=args.chunk_size)
+        apply_firmware_update(
+            parse_target(args),
+            package,
+            plan,
+            timeout=args.timeout,
+            write_timeout=args.write_timeout,
+            burn_wait=args.burn_wait,
+            apply=args.apply,
+            yes=args.yes,
+            force=args.force,
         )
         return
     if args.command == "status":

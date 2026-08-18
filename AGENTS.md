@@ -18,6 +18,9 @@ Two thin frontends over one offline protocol core:
   diagnostic-query outcomes that preserve raw response bytes.
 - `src/toshiba_bfv4_tool/lan.py` — the `toshiba-bfv4-lan` CLI: a read-only
   multi-printer probe. It must stay read-only.
+- `src/toshiba_bfv4_tool/firmware.py` — validated operator-supplied `.abin`
+  package parsing and the guarded firmware transport. It must never bundle or
+  download vendor firmware.
 - `tests/test_core.py` — offline, byte-exact protocol tests. No test requires
   a live printer or network access.
 - `pyproject.toml` / `uv.lock` — uv + hatchling, Python >= 3.11, pydantic 2.
@@ -44,6 +47,10 @@ crossing a boundary is validated by a pydantic model with
   queries. Do not add automatic retries for mutating commands.
 - Raw printer-filesystem transfers (file bytes) remain disabled; only the
   header/plan preview exists. Do not add file transmission casually.
+- Firmware is a separate flash-image protocol, not a filesystem transfer. It
+  may transmit only after package/header/payload CRC validation, target
+  preflight, and explicit `--apply --yes`. Keep the default chunk size at 8192
+  bytes unless a protocol source proves a different safe limit.
 
 ## Protocol-registry principle
 
@@ -63,11 +70,12 @@ All wire-format knowledge is centralized, never inlined:
 
 ## Preview/Apply gate
 
-`apply_previews()` is the single choke point for writes: it prints the full
-preview JSON first, transmits only when both `--apply` and `--yes` are
-present, and treats either flag alone as a no-op or an error. Never add a
-side channel that bypasses it. Read paths (`status`, `query`, the LAN probe)
-never mutate printer state.
+`apply_previews()` is the choke point for ordinary command writes, and
+`apply_firmware_update()` is the corresponding choke point for the streaming
+flash-image protocol. Both print a full offline plan first and transmit only
+when both `--apply` and `--yes` are present. Never add a side channel that
+bypasses these gates. Read paths (`status`, `query`, the LAN probe) never
+mutate printer state.
 
 ## Testing obligations
 

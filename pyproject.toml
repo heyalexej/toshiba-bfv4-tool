@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "toshiba-bfv4-tool"
-version = "0.1.0"
+version = "0.2.0"
 description = "Community CLI for Toshiba B-FV4 and B-FV4D network management"
 readme = "README.md"
 requires-python = ">=3.11"

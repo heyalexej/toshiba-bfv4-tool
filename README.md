@@ -11,6 +11,8 @@ provided for operators who need predictable LAN diagnostics and configuration.
 - inspect a self-describing read-only query registry with exact request bytes;
 - apply mutating commands only with an explicit `--apply --yes` confirmation;
 - preview printer filesystem transfer headers without transmitting file data;
+- validate operator-supplied `.abin` firmware packages and apply them through
+  a guarded raw-image update flow;
 - probe several printers from one command with the read-only LAN client.
 
 The project deliberately keeps network targets explicit. No private IP
@@ -72,12 +74,25 @@ Apply a change only after reviewing the preview:
 toshiba-bfv4 lan 192.0.2.10 --socket on --socket-port 9100 --apply --yes
 ```
 
+Validate a firmware package without contacting a printer:
+
+```bash
+toshiba-bfv4 firmware 192.0.2.10 --package ./B-FV4-firmware.zip
+```
+
+The firmware command checks every `.abin` header and payload CRC32 and prints
+the complete plan without transmitting bytes by default. After reviewing the
+plan, an operator may explicitly apply it with `--apply --yes`. The package is
+operator-supplied; this project neither ships nor downloads Toshiba firmware.
+
 ## Safety model
 
 Status and preview commands are read-only. Network settings, emulation,
-parameter, reset, and filesystem-transfer operations never transmit changes
-unless both `--apply` and `--yes` are present. Test changes on one printer
-first and keep a recovery path available before changing LAN settings.
+parameter, reset, filesystem-transfer headers, and firmware operations never
+transmit changes unless both `--apply` and `--yes` are present. Firmware also
+requires a ready B-FV4 target, validates the package before opening a socket,
+checks `burnstatus`, and only then sends `reboot 1`/`exit`. Test changes on one
+printer first and keep a recovery path available before changing LAN settings.
 
 The tool speaks the printer's documented TPCL/socket interfaces. It does not
 ship vendor firmware, fonts, icons, proprietary application assets, or printer
