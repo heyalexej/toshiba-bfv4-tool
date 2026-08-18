@@ -54,6 +54,15 @@ def test_single_command_uses_double_escape_and_crlf() -> None:
     assert preview.payload_ascii == "\\x1b\\x1bmc\\r\\n"
 
 
+def test_media_calibration_value_is_ascii_digits_only() -> None:
+    preview = MODULE.build_single_command("media-calibration", "12")
+    assert preview.payload_ascii == "\\x1b\\x1bsc 12\\r\\n"
+    with pytest.raises(ValueError, match="ASCII digits"):
+        MODULE.build_single_command("media-calibration", "1;reboot")
+    with pytest.raises(ValueError, match="ASCII digits"):
+        MODULE.build_single_command("media-calibration", "１２")
+
+
 def test_single_command_builds_factory_reset() -> None:
     preview = MODULE.build_single_command("factory-reset")
     assert preview.payload_ascii == "\\x1b\\x1bfacreset 0\\r\\n"
@@ -127,3 +136,4 @@ def test_capability_manifest_distinguishes_family_optional_pages() -> None:
 def test_status_response_parser_matches_live_shape() -> None:
     response = bytes.fromhex("01 02 30 30 31 30 30 30 30 03 04 0d 0a")
     assert MODULE.parse_status(response) == ("00", "1", 0)
+    assert MODULE.STATUS_DETAILS["36"] == "reserved"

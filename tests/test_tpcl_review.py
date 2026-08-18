@@ -382,6 +382,11 @@ def test_cli_rejects_unknown_emulation_mode_via_choices(monkeypatch: pytest.Monk
         MODULE.main(["emulation", HOST, "J"])
 
 
+def test_cli_accepts_documented_snapshot_query() -> None:
+    args = MODULE.make_parser().parse_args(["query", HOST, "status"])
+    assert args.operation == "status"
+
+
 def test_printer_target_validates_port_range() -> None:
     with pytest.raises(ValidationError):
         MODULE.PrinterTarget(host=HOST, port=0)

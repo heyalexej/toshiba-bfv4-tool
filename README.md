@@ -51,13 +51,20 @@ Probe several printers without changing them:
 toshiba-bfv4-lan 192.0.2.10 192.0.2.11 --only status --only info
 ```
 
-List available maintenance queries without contacting a printer:
+List available read-only queries without contacting a printer:
 
 ```bash
 toshiba-bfv4 query-list
 ```
 
-The four documented snapshot queries (`status`, `buffer`, `version`, and
+Run any registered read-only query directly:
+
+```bash
+toshiba-bfv4 query 192.0.2.10 status
+toshiba-bfv4 query 192.0.2.10 form-list
+```
+
+The documented snapshot queries (`status`, `buffer`, `version`, and
 `identity`) use strict length and framing checks. Additional maintenance
 queries are diagnostic and read-only; an empty answer means that the exact
 firmware does not support that query and must not be retried automatically.

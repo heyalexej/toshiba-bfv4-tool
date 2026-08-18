@@ -49,9 +49,10 @@ The single-printer CLI provides these commands:
   printer identity.
 - `query-list` — list the read-only maintenance query names and wire details.
 - `query HOST QUERY [VALUE]` — run one maintenance query. Supported queries
-  are `system-version`, `config`, `media-info`, `tph-info`, `form-list`,
-  `font-list`, `graphic-list`, `info`, `task-status`, `burn-status`, and
-  `last-state`.
+  include the documented snapshots `status`, `buffer`, `version`, and
+  `identity`, plus `system-version`, `config`, `media-info`, `tph-info`,
+  `form-list`, `font-list`, `graphic-list`, `info`, `task-status`,
+  `burn-status`, and `last-state`.
 - `lan HOST [OPTIONS]` — preview or apply IP, gateway, subnet, DHCP, client
   ID, raw socket, and socket-port settings.
 - `tpcl-parameter HOST [OPTIONS]` — preview or apply the TPCL ESC Z2;1

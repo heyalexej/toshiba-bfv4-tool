@@ -104,6 +104,7 @@ STATUS_DETAILS: Final[dict[str, str]] = {
     "18": "head-temperature-high",
     "21": "ribbon-error",
     "23": "last-label-issued",
+    "36": "reserved",
     "50": "memory-write-error",
     "51": "memory-format-error",
     "54": "memory-full",
@@ -174,13 +175,14 @@ CAPABILITIES: Final = CapabilityManifest(
         "SBPLGeneral",
     ),
     download_pages=("Firmware", "Font", "FontGeneral", "BASIC", "General"),
-    tool_pages=("SingleCommand", "Status"),
+    tool_pages=("SingleCommand", "Status", "MaintenanceQueries", "Firmware"),
     bfv4d_relevant=(
         "LAN",
-        "LANIPv6 (firmware/module dependent)",
         "TPCLGeneral",
         "SingleCommand",
         "Status",
+        "MaintenanceQueries",
+        "Firmware (guarded)",
     ),
     family_optional=(
         "COM",
@@ -602,6 +604,8 @@ def build_single_command(name: str, value: str | None = None) -> CommandPreview:
     """Build supported single-command maintenance operations."""
 
     if name == "media-calibration":
+        if value is not None and (not value or not value.isascii() or not value.isdigit()):
+            raise ValueError("media-calibration value must contain only ASCII digits")
         command = "mc" if value is None else f"sc {value}"
         effect = "Run media calibration" if value is None else f"Run media calibration mode {value}"
     elif name == "ribbon-calibration":
@@ -685,6 +689,12 @@ def build_internal_query(name: str, value: str | None = None) -> CommandPreview:
             dangerous=False,
         )
 
+    documented = {
+        "status": "WS",
+        "buffer": "WB",
+        "version": "WV",
+        "identity": "IR",
+    }
     fixed = {
         "system-version": "sv\r\n",
         "config": "config 0\r\n",
@@ -697,6 +707,14 @@ def build_internal_query(name: str, value: str | None = None) -> CommandPreview:
         "burn-status": "burnstatus\r\n",
         "last-state": "laststate 3\r\n",
     }
+    if name in documented:
+        payload = frame(documented[name])
+        return CommandPreview(
+            operation=f"query.{name}",
+            effect="Read-only Toshiba query; no printer setting is changed.",
+            payload_hex=payload.hex(" "),
+            payload_ascii=display_payload(payload),
+        )
     if name == "tph-info":
         if value not in {"1", "2"}:
             raise ValueError("tph-info requires value 1 or 2")
@@ -900,6 +918,10 @@ def make_parser() -> argparse.ArgumentParser:
 
         def query_names() -> tuple[str, ...]:
             return (
+                "status",
+                "buffer",
+                "version",
+                "identity",
                 "system-version",
                 "config",
                 "media-info",
@@ -931,7 +953,7 @@ def make_parser() -> argparse.ArgumentParser:
     add_target(query)
     query.add_argument(
         "operation",
-        choices=REGISTRY.names(documented=False) if REGISTRY is not None else query_names(),
+        choices=REGISTRY.names() if REGISTRY is not None else query_names(),
     )
     query.add_argument("value", nargs="?")
     query.add_argument("--timeout", type=float, default=1.5)
